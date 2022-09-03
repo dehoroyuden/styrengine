@@ -14,7 +14,7 @@
 
 // NOTE(Denis): Image and File Importers
 #define TINYOBJLOADER_IMPLEMENTATION
-#include "tiny_obj_loader.h"
+#include "styr_obj_impoter.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
