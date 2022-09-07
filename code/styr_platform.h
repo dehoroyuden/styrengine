@@ -48,35 +48,27 @@ extern "C" {
 	typedef uint16_t  uint16;
 	typedef uint32_t  uint32;
 	typedef uint64_t  uint64;
-	
 	typedef int8_t  int8;
 	typedef int16_t  int16;
 	typedef int32_t  int32;
 	typedef int64_t  int64;
 	typedef int32 bool32;
-	
 	typedef intptr_t intptr;
 	typedef uintptr_t uintptr;
-	
 	typedef size_t memory_index;
-	
 	typedef float real32;
 	typedef double real64;
-	
 	typedef uint8 u8;
 	typedef uint16 u16;
 	typedef uint32 u32;
 	typedef uint64 u64;
-	
 	typedef int8 s8;
 	typedef int16 s16;
 	typedef int32 s32;
 	typedef int64 s64;
 	typedef bool32 b32;
-	
-	typedef real32 r32;
-	typedef real64 r64;
-	
+	typedef real32 f32;
+	typedef real64 f64;
 	typedef uintptr_t umm;
 	
 #define U32FromPointer(Pointer) ((u32)(memory_index)(Pointer))
@@ -100,19 +92,17 @@ extern "C" {
 #define VulkanErrorMessage(Expression)\
 Expression == 0 ? "VK_SUCCESS" :  Expression == 1 ? "VK_NOT_READY" : Expression == 2 ? "VK_TIMEOUT" : Expression == 3 ? "VK_EVENT_SET" : Expression == 4 ? "VK_EVENT_RESET" : Expression == 5 ? "VK_INCOMPLETE" : Expression == -1 ? "VK_ERROR_OUT_OF_HOST_MEMORY" : Expression == -2 ? "VK_ERROR_OUT_OF_DEVICE_MEMORY" : Expression == -3 ? "VK_ERROR_INITIALIZATION_FAILED" : Expression == -4 ? "VK_ERROR_DEVICE_LOST" : Expression == -5 ? "VK_ERROR_MEMORY_MAP_FAILED" : Expression == -6 ? "VK_ERROR_LAYER_NOT_PRESENT" : Expression == -7 ? "VK_ERROR_EXTENSION_NOT_PRESENT" : Expression == -8 ? "VK_ERROR_FEATURE_NOT_PRESENT" : Expression == -9 ? "VK_ERROR_INCOMPATIBLE_DRIVER" : Expression == -10 ? "VK_ERROR_TOO_MANY_OBJECTS" : Expression == -11 ? "VK_ERROR_FORMAT_NOT_SUPPORTED" : Expression == -12 ? "VK_ERROR_FRAGMENTED_POOL" : Expression == -12 ? "VK_ERROR_FRAGMENTED_POOL" : "VK_ERROR_UNKNOWN"
 	
-#define Assert_(Expression, type) \
-TextBuffer[256];\
-_snprintf_s(TextBuffer,sizeof(TextBuffer), type, VulkanErrorMessage((Expression)));\
-MessageBox(NULL, TextBuffer, "caption", 0);
+#define ShowVulkanResult(Expression, type) \
+printf("Vulkan result line : %d | File : %s | Function : %s | Result: %s\n",__LINE__, __FILE__, __FUNCTION__, VulkanErrorMessage((Expression))); fflush(stdout);
+	//MessageBox(NULL, TextBuffer, "Message", 0);
 	
-#define Assert_NotVulkan(Expression, type) \
-TextBuffer[256];\
-_snprintf_s(TextBuffer,sizeof(TextBuffer), type, Expression);\
-MessageBox(NULL, TextBuffer, "caption", 0);
+#define PrintMessage(Expression, type) \
+printf(type, Expression);
+	//MessageBox(NULL, TextBuffer, "caption", 0);
 	
 #else
-#define Assert_(Expression,...) Expression;
-#define Assert_NotVulkan(Expression, type)
+#define ShowVulkanResult(Expression,...) Expression;
+#define PrintMessage(Expression, type)
 #endif
 	
 #if STYR_SLOW
@@ -159,6 +149,15 @@ MessageBox(NULL, TextBuffer, "caption", 0);
 #define PLATFORM_DEALLOCATE_MEMORY(name) void name(void *Memory)
 	typedef PLATFORM_DEALLOCATE_MEMORY(platform_deallocate_memory);
 	
+	struct styr_string
+	{
+		u32 Count;
+		char *Data;
+	};
+	
+#define PLATFORM_ASSIGN_STYR_STRING(name) styr_string name(const char A[])
+	typedef PLATFORM_ASSIGN_STYR_STRING(platform_assign_styr_string);
+	
 	typedef struct read_file_result
 	{
 		u32 ContentsSize;
@@ -183,10 +182,24 @@ MessageBox(NULL, TextBuffer, "caption", 0);
 		int Pitch;
 	} game_offscreen_buffer;
 	
+	typedef struct engine_render_commands
+	{
+		u32 *WindowWidth;
+		u32 *WindowHeight;
+		
+		u32 MaxCommandBufferSize;
+		u32 CommandBufferSize;
+		u8 *CommandBufferBase;
+		
+		u32 CommandBufferElementCount;
+	} engine_render_commands;
+	
 	typedef struct platform_api
 	{
 		platform_allocate_memory *AllocateMemory;
 		platform_deallocate_memory *DeallocateMemory;
+		
+		platform_assign_styr_string *StyrAssignString;
 	} platform_api;
 	
 	typedef struct game_memory
@@ -223,12 +236,14 @@ MessageBox(NULL, TextBuffer, "caption", 0);
 		
 		union
 		{
-			game_button_state Buttons[12];
+			game_button_state Buttons[14];
 			struct {
 				game_button_state MoveUp;
 				game_button_state MoveDown;
 				game_button_state MoveLeft;
 				game_button_state MoveRight;
+				game_button_state RotateLeft;
+				game_button_state RotateRight;
 				
 				game_button_state ActionUp;
 				game_button_state ActionDown;
@@ -265,13 +280,14 @@ MessageBox(NULL, TextBuffer, "caption", 0);
 	
 	typedef struct game_input
 	{
-		r32 dtForFrame;
+		f32 dtForFrame;
 		
 		game_controller_input Controllers[5];
 		
 		// NOTE(Denis): For debbuiging only
 		game_button_state MouseButtons[PlatformMouseButton_Count];
-		r32 MouseX, MouseY, MouseZ;
+		f32 MouseX, MouseY, MouseZ;
+		f32 MouseDeltaX, MouseDeltaY;
 		b32 ShiftDown, AltDown, ControlDown;
 	}  game_input;
 	
@@ -428,42 +444,99 @@ MessageBox(NULL, TextBuffer, "caption", 0);
 	{
 		struct 
 		{
-			r32 Value1_1;
-			r32 Value1_2;
-			r32 Value1_3;
-			r32 Value2_1;
-			r32 Value2_2;
-			r32 Value2_3;
-			r32 Value3_1;
-			r32 Value3_2;
-			r32 Value3_3;
+			f32 Value1_1;
+			f32 Value1_2;
+			f32 Value1_3;
+			f32 Value2_1;
+			f32 Value2_2;
+			f32 Value2_3;
+			f32 Value3_1;
+			f32 Value3_2;
+			f32 Value3_3;
 		};
-		r32 E[9];
+		f32 E[9];
 	};
 	
 	union mat4
 	{
 		struct 
 		{
-			r32 Value1_1;
-			r32 Value1_2;
-			r32 Value1_3;
-			r32 Value1_4;
-			r32 Value2_1;
-			r32 Value2_2;
-			r32 Value2_3;
-			r32 Value2_4;
-			r32 Value3_1;
-			r32 Value3_2;
-			r32 Value3_3;
-			r32 Value3_4;
-			r32 Value4_1;
-			r32 Value4_2;
-			r32 Value4_3;
-			r32 Value4_4;
+			f32 Value1_1;
+			f32 Value1_2;
+			f32 Value1_3;
+			f32 Value1_4;
+			f32 Value2_1;
+			f32 Value2_2;
+			f32 Value2_3;
+			f32 Value2_4;
+			f32 Value3_1;
+			f32 Value3_2;
+			f32 Value3_3;
+			f32 Value3_4;
+			f32 Value4_1;
+			f32 Value4_2;
+			f32 Value4_3;
+			f32 Value4_4;
 		};
-		r32 E[16];
+		
+		f32 E[16];
+		
+		f32 TE[4][4];
 	};
+}
+
+PLATFORM_FREE_FILE_MEMORY(PlatformFreeFileMemory)
+{
+	if(Memory)
+	{
+		VirtualFree(Memory, 0, MEM_RELEASE);
+	}
+}
+
+PLATFORM_READ_ENTIRE_FILE(PlatformReadEntireFile)
+{
+	read_file_result Result = {};
+	
+	HANDLE FileHandle = CreateFileA(Filename,GENERIC_READ,FILE_SHARE_READ, 0,OPEN_EXISTING,0,0);
+	if(FileHandle != INVALID_HANDLE_VALUE)
+	{
+		LARGE_INTEGER FileSize;
+		if(GetFileSizeEx(FileHandle, &FileSize))
+		{
+			uint32 FileSize32 = SafeTruncateUInt64(FileSize.QuadPart);
+			Result.Contents = VirtualAlloc(0,FileSize.QuadPart, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+			if(Result.Contents)
+			{
+				DWORD BytesRead;
+				if(ReadFile(FileHandle, Result.Contents, FileSize32, &BytesRead,0) && 
+				   (FileSize32 == BytesRead))
+				{
+					// NOTE(Denis): File read successfully
+					Result.ContentsSize = FileSize32;
+				}
+				else
+				{
+					PlatformFreeFileMemory(Result.Contents);
+					Result.Contents = 0;
+				}
+			}
+			else
+			{
+				// TODO(Denis): Logging
+			}
+		}
+		else
+		{
+			// TODO(Denis): Logging
+		}
+		CloseHandle(FileHandle);
+	}
+	else
+	{
+		// TODO(Denis): Logging
+	}
+	
+	return(Result);
 }
 
 // NOTE(Denis): Probably need to be relocated to its own file, to the game inside code

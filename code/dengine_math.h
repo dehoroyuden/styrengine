@@ -321,7 +321,7 @@ Clamp01(v2  Value)
 }
 
 inline v2
-Arm2(r32 Angle)
+Arm2(f32 Angle)
 {
 	v2 Result = {Cos(Angle), Sin(Angle)};
 	return Result;
@@ -467,6 +467,18 @@ Clamp01(v3  Value)
 	Result.z = Clamp01(Value.z);
 	
 	return(Result);
+}
+
+inline v3
+CrossProduct(v3 A, v3 B)
+{
+	v3 Result = {};
+	
+	Result.x = A.y*B.z - A.z*B.y;
+	Result.y = A.z*B.x - A.x*B.z;
+	Result.z = A.x*B.y - A.y*B.x;
+	
+	return Result;
 }
 
 inline v3
@@ -1022,6 +1034,7 @@ Linear1ToSRGB255(v4 C)
 // mat4
 
 // Matrix 4x4
+
 inline mat4
 Identity()
 {
@@ -1035,22 +1048,22 @@ Identity()
 	return Result;
 }
 
-inline v3
-operator*(mat4 A, v3 B)
+inline mat4
+TransposeMatrix(mat4 Value)
 {
-	v3 Result;
+	mat4 Result = Identity();
 	
-	Result.x = B.x * A.Value1_1 + B.x * A.Value1_2 + B.x * A.Value1_3 + B.x * A.Value1_4;
-	Result.y = B.y * A.Value2_1 + B.y * A.Value2_2 + B.y * A.Value2_3 + B.y * A.Value2_4;
-	Result.z = B.z * A.Value3_1 + B.z * A.Value3_2 + B.z * A.Value3_3 + B.z * A.Value3_4;
-	
-	return Result;
-}
-
-inline v3
-operator*(v3 A, mat4 B)
-{
-	v3 Result = B * A;
+	for(u32 Column = 0;
+		Column < 4;
+		++Column)
+	{
+		for(u32 Row = 0;
+			Row< 4;
+			++Row)
+		{
+			Result.TE[Row][Column] = Value.TE[Column][Row];
+		}
+	}
 	
 	return Result;
 }
@@ -1060,22 +1073,39 @@ operator*(mat4 A, v4 B)
 {
 	v4 Result;
 	
-	Result.x = B.x * A.Value1_1 + B.x * A.Value1_2 + B.x * A.Value1_3 + B.x * A.Value1_4;
-	Result.y = B.y * A.Value2_1 + B.y * A.Value2_2 + B.y * A.Value2_3 + B.y * A.Value2_4;
-	Result.z = B.z * A.Value3_1 + B.z * A.Value3_2 + B.z * A.Value3_3 + B.z * A.Value3_4;
-	Result.w = B.w * A.Value4_1 + B.w * A.Value4_2 + B.w * A.Value4_3 + B.w * A.Value4_4;
+	Result.x = B.x * A.Value1_1 + B.y * A.Value1_2 + B.z * A.Value1_3 + B.w * A.Value1_4;
+	Result.y = B.x * A.Value2_1 + B.y * A.Value2_2 + B.z * A.Value2_3 + B.w * A.Value2_4;
+	Result.z = B.x * A.Value3_1 + B.y * A.Value3_2 + B.z * A.Value3_3 + B.w * A.Value3_4;
+	Result.w = B.x * A.Value4_1 + B.y * A.Value4_2 + B.z * A.Value4_3 + B.w * A.Value4_4;
 	
 	return Result;
 }
 
-inline v4
-operator*(v4 A, mat4 B)
+inline mat4
+operator*(mat4 A, mat4 B)
 {
-	v4 Result = B * A;
+	mat4 Result = {};
+	
+	for(u32 Row = 0;
+		Row< 4;
+		++Row)
+	{
+		for(u32 Column = 0;
+			Column < 4;
+			++Column)
+		{
+			Result.TE[Row][Column] = 0;
+			for(u32 k = 0;
+				k < 4;
+				++k)
+			{
+				Result.TE[Row][Column] += A.TE[k][Column] * B.TE[Row][k];
+			}
+		}
+	}
 	
 	return Result;
 }
-
 
 //
 //
@@ -1111,17 +1141,17 @@ Minimum(s32 A, s32 B)
 	return Result;
 }
 
-inline r32
-Maximum(r32 A, r32 B)
+inline f32
+Maximum(f32 A, f32 B)
 {
-	r32 Result = ((A < B) ? (A):(B));
+	f32 Result = ((A < B) ? (A):(B));
 	return Result;
 }
 
-inline r32 
-Minimum(r32 A, r32 B)
+inline f32 
+Minimum(f32 A, f32 B)
 {
-	r32 Result = ((A < B) ? (A):(B));
+	f32 Result = ((A < B) ? (A):(B));
 	return Result;
 }
 
@@ -1151,7 +1181,7 @@ Log2(u32 Value)
 
 // Misc Trigonometry Functions
 
-inline r32 Factorial(r32 N)
+inline f32 Factorial(f32 N)
 {
 	if(N == 0)
 	{
@@ -1161,10 +1191,10 @@ inline r32 Factorial(r32 N)
 	return N * (Factorial(N-1));
 }
 
-inline r32
-Power(r32 N, r32 Power)
+inline f32
+Power(f32 N, f32 Power)
 {
-	r32 Result = N;
+	f32 Result = N;
 	
 	for(u32 Index = 1;
 		Index < Power;
@@ -1176,18 +1206,18 @@ Power(r32 N, r32 Power)
 	return Result;
 }
 
-inline r32 Fmod(r32 A, r32 B)
+inline f32 Fmod(f32 A, f32 B)
 {
-	r32 Frac = A / B;
+	f32 Frac = A / B;
 	s32 Floor = (Frac > 0) ? (s32)Frac : ((s32)(Frac - 0.9999999999999f));
 	
 	return (A - B * Floor);
 }
 
-inline r32 Sinus(r32 N)
+inline f32 Sinus(f32 N)
 {
-	r32 Result = N;
-	r32 Coefficient = 3.0f;
+	f32 Result = N;
+	f32 Coefficient = 3.0f;
 	
 #if 1
 	N = Fmod(N, Tau32);
@@ -1209,8 +1239,8 @@ inline r32 Sinus(r32 N)
 		t < 6;
 		++t)
 	{
-		r32 Pow = Power(N, Coefficient);
-		r32 Frac = Factorial(Coefficient);
+		f32 Pow = Power(N, Coefficient);
+		f32 Frac = Factorial(Coefficient);
 		
 		Result = ((t % 2) == 0) ? (Result - (Pow/Frac)) : (Result + (Pow/Frac));
 		
@@ -1220,22 +1250,22 @@ inline r32 Sinus(r32 N)
 	return Result;//Sign * Result;
 }
 
-inline r32 RadiansFromDegrees(r32 Angle)
+inline f32 RadiansFromDegrees(f32 Angle)
 {
-	r32 Result = Angle * DegreeInRadians;
+	f32 Result = Angle * DegreeInRadians;
 	
 	return Result;
 }
 
-inline r32 DegreesFromRadians(r32 Radians)
+inline f32 DegreesFromRadians(f32 Radians)
 {
-	r32 Result = Radians * RadianInDegrees;
+	f32 Result = Radians * RadianInDegrees;
 	
 	return Result;
 }
 
 inline mat4
-Rotate(mat4 View, r32 Angle, v3 Axis)
+Rotate(mat4 View, f32 Angle, v3 Axis)
 {
 	mat4 Result = 
 	{
@@ -1267,6 +1297,8 @@ ConvertToMatrix4x4(glm::mat4 Matrix)
 	Result.Value4_3 = Matrix[3].z;
 	Result.Value4_4 = Matrix[3].w;
 	
+	//Result = TransposeMatrix(Result);
+	
 	return Result;
 }
 
@@ -1295,19 +1327,103 @@ ConvertFromMatrix4x4(mat4 Matrix)
 	return Result;
 }
 
+#if 0
 // NOTE(Denis): This is converts objects into _image space_
 inline mat4
-PerspectiveProjection(r32 FovyInRadians, r32 Aspect, r32 NearPlane, r32 FarPlane)
+PerspectiveProjection(f32 FovyInRadians, f32 Aspect, f32 NearPlane, f32 FarPlane)
 {
 	mat4 Result = {};
+	Result = Identity();
 	
-	r32 FovScalingFactor = 1.0f / Tan(FovyInRadians / 2.0f);
+	f32 FovScalingFactor = 1.0f / Tan(FovyInRadians / 2.0f);
 	
 	Result.Value1_1 = 1.0f / (Aspect * Tan(FovyInRadians / 2.0f));
 	Result.Value2_2 = FovScalingFactor;
 	Result.Value3_3 = -(FarPlane + NearPlane) / (FarPlane - NearPlane);
 	Result.Value3_4 = -1.0f;
-	Result.Value4_3 = -(2 * FarPlane * NearPlane) / (FarPlane - NearPlane);
+	Result.Value4_3 = -(2.0f * FarPlane * NearPlane) / (FarPlane - NearPlane);
+	
+	return Result;
+}
+
+// NOTE(Denis): This is converts objects into _image space_
+inline mat4
+PerspectiveProjection(f32 FovyInRadians, f32 Aspect, f32 NearPlane, f32 FarPlane)
+{
+	mat4 Result = {};
+	Result = Identity();
+	
+	f32 Rad = FovyInRadians;
+	f32 TanHalfFovy = Tan((Rad / 2.0f));
+	
+	Result.TE[0][0] = 1.0f / (Aspect * TanHalfFovy);
+	Result.TE[1][1] = 1.0f / TanHalfFovy;
+	Result.TE[2][2] = FarPlane / (NearPlane - FarPlane);
+	Result.TE[2][3] = -1.0f;
+	Result.TE[3][2] = -(FarPlane * NearPlane) / (FarPlane - NearPlane);
+	
+	return Result;
+}
+#endif
+
+inline mat4
+Mat4MakePerspective(f32 FovyInRadians, f32 Aspect, f32 NearPlane, f32 FarPlane)
+{
+	mat4 Result = {};
+	Result = Identity();
+	
+	Result.Value1_1 = Aspect * (1.0f / Tan(FovyInRadians * 0.5f));
+	Result.Value2_2 = 1.0f / Tan(FovyInRadians / 2.0f);
+	Result.Value3_3 = FarPlane / (FarPlane - NearPlane);
+	Result.Value3_4 = (-FarPlane * NearPlane) / (FarPlane - NearPlane);
+	Result.Value4_3 = 1.0f;
+	
+	return Result;
+}
+
+inline v4
+Mat4MulVec4Project(mat4 MatProjection, v4 Vector)
+{
+	v4 Result = MatProjection * Vector;
+	
+	if(Result.w != 0.0f)
+	{
+		Result.x /= Result.w;
+		Result.y /= Result.w;
+		Result.z /= Result.w;
+	}
+	
+	return Result;
+}
+
+inline mat4
+PerspectiveProjection(f32 FovyInRadians, f32 Aspect, f32 NearPlane, f32 FarPlane)
+{
+	mat4 Result = {};
+	Result = Identity();
+	
+	f32 FovScalingFactor = 1.0f / Tan(FovyInRadians / 2.0f);
+	
+	Result.Value1_1 = 1.0f / (Aspect * Tan(FovyInRadians / 2.0f));
+	Result.Value2_2 = -FovScalingFactor;
+	Result.Value3_3 = -(FarPlane + NearPlane) / (FarPlane - NearPlane);
+	Result.Value3_4 = -1.0f;
+	Result.Value4_3 = -(2.0f * FarPlane * NearPlane) / (FarPlane - NearPlane);
+	
+	return Result;
+}
+
+inline mat4
+ScreenSpaceToVulkanSpace(u32 ScreenWidth, u32 ScreenHeight)
+{
+	mat4 Result = {};
+	
+	Result.Value1_1 = 2.0f / ScreenWidth;
+	Result.Value1_4 = -1;
+	Result.Value2_2 = 2.0f / ScreenHeight;
+	Result.Value2_4 = -1;
+	Result.Value3_3 = 1;
+	Result.Value4_4 = 1;
 	
 	return Result;
 }

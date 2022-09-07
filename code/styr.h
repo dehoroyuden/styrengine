@@ -3,7 +3,7 @@
 // Styr Engine -- author: Denis Hoida | 2022
 //----------------------------------------------------------------
 
-struct memory_arena
+struct memory_chunk
 {
 	memory_index Size;
 	u8 *Base;
@@ -12,27 +12,27 @@ struct memory_arena
 	u32 TempCount;
 };
 
-struct temporary_memory
+struct chunk_temporary_memory
 {
-	memory_arena *Arena;
+	memory_chunk *Arena;
 	memory_index Used;
 };
 
 inline void
-InitializeArena(memory_arena *Arena, memory_index Size, void *Base)
+InitializeArena(memory_chunk *Chunk, memory_index Size, void *Base)
 {
-	Arena->Size = Size;
-	Arena->Base = (u8 *)Base;
-	Arena->Used = 0;
-	Arena->TempCount = 0;
+	Chunk->Size = Size;
+	Chunk->Base = (u8 *)Base;
+	Chunk->Used = 0;
+	Chunk->TempCount = 0;
 }
 
 inline memory_index
-GetAlignmentOffset(memory_arena *Arena, memory_index Alignment)
+GetAlignmentOffset(memory_chunk *Chunk, memory_index Alignment)
 {
 	memory_index AlignmentOffset = 0;
 	
-	memory_index ResultPointer = (memory_index)Arena->Base + Arena->Used;
+	memory_index ResultPointer = (memory_index)Chunk->Base + Chunk->Used;
 	memory_index AlignmentMask = Alignment - 1;
 	if(ResultPointer & AlignmentMask)
 	{
@@ -95,13 +95,14 @@ NoClear(void)
 }
 
 inline memory_index
-GetArenaSizeRemaining(memory_arena *Arena, arena_push_params Params = DefaultArenaParams())
+GetArenaSizeRemaining(memory_chunk *Arena, arena_push_params Params = DefaultArenaParams())
 {
 	memory_index Result = Arena->Size - (Arena->Used + GetAlignmentOffset(Arena, Params.Alignment));
 	return(Result);
 }
 
 #define PushArray(Arena, Count, type, ...) ((type *)PushSize_(Arena, (Count)*sizeof(type), ##__VA_ARGS__))
+#define PushStruct(Arena, type, ...) ((type *)PushSize_(Arena, sizeof(type), ##__VA_ARGS__))
 #define PushSize(Arena, Size, ...) PushSize_(Arena, Size, ##__VA_ARGS__)
 
 #define ZeroArray(Count, Pointer) ZeroSize(Count * sizeof((Pointer)[0]), Pointer)
@@ -117,7 +118,7 @@ ZeroSize(memory_index Size, void *Ptr)
 }
 
 inline memory_index
-GetEffectiveSizeFor(memory_arena *Arena, memory_index SizeInit, arena_push_params Params = DefaultArenaParams())
+GetEffectiveSizeFor(memory_chunk *Arena, memory_index SizeInit, arena_push_params Params = DefaultArenaParams())
 {
 	memory_index Size = SizeInit;
 	
@@ -128,7 +129,7 @@ GetEffectiveSizeFor(memory_arena *Arena, memory_index SizeInit, arena_push_param
 }
 
 inline b32
-ArenaHasRoomFor(memory_arena *Arena, memory_index SizeInit, arena_push_params Params = DefaultArenaParams())
+ArenaHasRoomFor(memory_chunk *Arena, memory_index SizeInit, arena_push_params Params = DefaultArenaParams())
 {
 	memory_index Size = GetEffectiveSizeFor(Arena, SizeInit, Params);
 	b32 Result = ((Arena->Used + Size) <= Arena->Size);
@@ -136,7 +137,7 @@ ArenaHasRoomFor(memory_arena *Arena, memory_index SizeInit, arena_push_params Pa
 }
 
 inline void *
-PushSize_(memory_arena *Arena, memory_index SizeInit, arena_push_params Params = DefaultArenaParams())
+PushSize_(memory_chunk *Arena, memory_index SizeInit, arena_push_params Params = DefaultArenaParams())
 {
 	memory_index Size = GetEffectiveSizeFor(Arena, SizeInit, Params);
 	
@@ -156,10 +157,10 @@ PushSize_(memory_arena *Arena, memory_index SizeInit, arena_push_params Params =
 	return Result;
 }
 
-inline temporary_memory
-BeginTemporaryMemory(memory_arena *Arena)
+inline chunk_temporary_memory
+BeginTemporaryMemory(memory_chunk *Arena)
 {
-	temporary_memory Result;
+	chunk_temporary_memory Result;
 	
 	Result.Arena = Arena;
 	Result.Used = Arena->Used;
@@ -170,9 +171,9 @@ BeginTemporaryMemory(memory_arena *Arena)
 }
 
 inline void
-EndTemporaryMemory(temporary_memory TempMem)
+EndTemporaryMemory(chunk_temporary_memory TempMem)
 {
-	memory_arena *Arena = TempMem.Arena;
+	memory_chunk *Arena = TempMem.Arena;
 	Assert(Arena->Used >= TempMem.Used);
 	Arena->Used = TempMem.Used;
 	Assert(Arena->TempCount > 0);
@@ -180,22 +181,60 @@ EndTemporaryMemory(temporary_memory TempMem)
 }
 
 inline void
-CheckArena(memory_arena *Arena)
+CheckArena(memory_chunk *Arena)
 {
 	Assert(Arena->TempCount == 0);
 }
 
-struct Vertex
+enum engine_render_command_type
+{
+	EngineRenderCommandType_None,
+	EngineRenderCommandType_ViewMatrix,
+	EngineRenderCommandType_CameraForwardVector,
+};
+
+struct engine_render_entry_header
+{
+	engine_render_command_type Type;
+	u32 Offset;
+};
+
+struct quaternion
+{
+	f32 Angle;
+	f32 x;
+	f32 y;
+	f32 z;
+};
+
+struct transform
+{
+	v3 Position;
+	v3 Scale;
+	quaternion Rotation;
+	
+	mat4 Matrix;
+};
+
+struct vertex
 {
 	v3 Pos;
 	v3 Color;
 	v2 TexCoord;
 };
 
-struct Mesh
+struct game_entity
 {
 	u32 VertexCount;
-	Vertex *Vertices;
+	vertex *Vertices;
+	
+	transform Transform;
+	v3 Front;
+	v3 Right;
+	v3 Up;
+	
+	f32 Yaw;
+	f32 Pitch;
 };
 
 struct Camera
@@ -207,11 +246,16 @@ struct Camera
 struct engine_state
 {
 	b32 IsInitialized;
-	memory_arena EngineArena;
-	memory_arena TransientArena;
+	memory_chunk EngineMemChunk;
+	memory_chunk TransientMemChunk;
 	
 	u32 VerticesCount;
-	Vertex *VerticesBuffer;
+	vertex *VerticesBuffer;
+	
+	u32 SceneObjectsCount;
+	game_entity *SceneObjects;
+	
+	game_entity Camera;
 };
 
 internal void EngineUpdateAndRender(game_memory *Memory, game_offscreen_buffer *Buffer);
