@@ -446,7 +446,7 @@ retval GetNormalsArray(NameAndOrder* obj, int line) {
 	for (int i = 0;i < count;i++) {
 		for (int j = 2;j <= 9;j += 3)
 			for (int k = 0;k <= 2;k++) {
-				verteces.values[position] = obj[line].PPosition[(obj[line].farray[i][j]) - 1].vn[k];//-1 because the number of array begins from 0
+				verteces.values[position] = obj[line].PPosition[(obj[line].farray[i][j]) - (1 + minus_previous)].vn[k];//-1 because the number of array begins from 0
 				position++;
 			}
 	}
