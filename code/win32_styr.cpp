@@ -14,7 +14,6 @@
 
 // NOTE(Denis): Image and File Importers
 #define TINYOBJLOADER_IMPLEMENTATION
-#include "styr_obj_impoter.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
@@ -22,6 +21,7 @@
 #include "dengine_shared.h"
 
 #include "win32_styr.h"
+#include "styr_obj_importer.h"
 
 // TODO(Denis): Get rid of the global variables!!!
 global_variable bool GlobalRunning;
@@ -33,8 +33,8 @@ global_variable b32 FramebufferResized = false;
 global_variable HWND GlobalWindowHandle;
 global_variable char TextBuffer[256];
 
-global_variable char *MODEL_PATH = "../data/models/cube.obj";
-global_variable char *TEXTURE_PATH = "../data/textures/ava_20.jpg";
+global_variable char *MODEL_PATH = "../data/models/landcruiser.obj";
+global_variable char *TEXTURE_PATH = "../data/textures/landcruiser_d.png";
 
 #include "styr.cpp"
 #include "styr_vulkan.cpp"
@@ -407,36 +407,11 @@ FindUniqueVerticesCount(HashVertex *HashVertices, u32 HashVerticesCount)
 internal b32
 LoadObj(char *Filepath, Array *OutVertices, Array *OutUVs, Array *OutNormals, Array *OutIndices,  memory_arena *TranArena)
 {
-	// NOTE(Denis): Load obj file and process it. Optimizes the repeated vertex by adding it to new array.
-	tinyobj::attrib_t Attrib;
-    std::vector<tinyobj::shape_t> Shapes;
-    std::vector<tinyobj::material_t> Materials;
-    std::string warn, err;
-	
-    if (!tinyobj::LoadObj(&Attrib, &Shapes, &Materials, &warn, &err, MODEL_PATH)) {
-        throw std::runtime_error(warn + err);
-    }
-	
-	// NOTE(Denis): How many indices in file
-	u32 VertexIndicesCount = 0;
-	for(u32 ShapeIndex = 0;
-		ShapeIndex < Shapes.size();
-		++ShapeIndex)
-	{
-		for(u32 Index = 0;
-			Index < Shapes[ShapeIndex].mesh.indices.size();
-			++Index)
-		{
-			++VertexIndicesCount;
-		}
-	}
-	
-	
-	OutIndices->Count = VertexIndicesCount;
-	OutIndices->Size = VertexIndicesCount * sizeof(u32);
-	OutIndices->Base = PushArray(TranArena, VertexIndicesCount, u32);
-	
-#if STYR_LOAD_MODEL_OPTIMIZED
+	ObjectData Data = CreateTheObject(Filepath);
+	retval vertexdata = GetVertexArray(Data.ObjectData,1);
+	retval texturedata = GetTextureArray(Data.ObjectData,1);
+
+#if 0 
 	temporary_memory TempMemory = BeginTemporaryMemory(TranArena);
 	
 	OutVertices->Size = VertexIndicesCount * sizeof(Vertex);
@@ -530,44 +505,44 @@ LoadObj(char *Filepath, Array *OutVertices, Array *OutUVs, Array *OutNormals, Ar
 	OutVertices->Count = UniqueIndex;
 	OutVertices->Base = ActualVerticesInUse;
 #else
-	OutVertices->Count = VertexIndicesCount;
-	OutVertices->Size = VertexIndicesCount * sizeof(Vertex);
-	OutVertices->Base = PushArray(TranArena, VertexIndicesCount, Vertex);
+	OutVertices->Count = vertexdata.count_o_vals/3;
+	OutVertices->Size = (vertexdata.count_o_vals/3) * sizeof(Vertex);
+	OutVertices->Base = PushArray(TranArena, (vertexdata.count_o_vals / 3), Vertex);
+
+	OutIndices->Count = vertexdata.count_o_vals / 3;
+	OutIndices->Size = (vertexdata.count_o_vals / 3) * sizeof(u32);
+	OutIndices->Base = PushArray(TranArena, (vertexdata.count_o_vals / 3), u32);
 	
 	Vertex *Vertices = (Vertex *)OutVertices->Base;
 	u32 *Indices = (u32 *)OutIndices->Base;
 	
 	u32 VertexIndex = 0;
-	for(u32 ShapeIndex = 0;
-		ShapeIndex < Shapes.size();
-		++ShapeIndex)
-	{
-		for(u32 Index = 0;
-			Index < Shapes[ShapeIndex].mesh.indices.size();
-			++Index)
+
+	for (int i = 0;i < vertexdata.count_o_vals;i += 3) {
+		Vertex Vert = {};
 		{
-			Vertex Vert = {};
+			Vert.Pos =
 			{
-				Vert.Pos =
-				{
-					Attrib.vertices[3 * Shapes[ShapeIndex].mesh.indices[Index].vertex_index + 0],
-					Attrib.vertices[3 * Shapes[ShapeIndex].mesh.indices[Index].vertex_index + 1],
-					Attrib.vertices[3 * Shapes[ShapeIndex].mesh.indices[Index].vertex_index + 2]
-				};
-				
-				Vert.TexCoord =
-				{
-					Attrib.texcoords[2 * Shapes[ShapeIndex].mesh.indices[Index].texcoord_index + 0],
-					1.0f - Attrib.texcoords[2 * Shapes[ShapeIndex].mesh.indices[Index].texcoord_index + 1]
-				};
-				
-				Vert.Color = {1.0f, 1.0f, 1.0f};
-			}
-			
-			Vertices[VertexIndex] = Vert;
-			Indices[VertexIndex] = VertexIndex;
-			++VertexIndex;
+				vertexdata.values[i],
+				vertexdata.values[i + 1],
+				vertexdata.values[i + 2]
+			};
+
+			Vert.Color = { 1.0f, 1.0f, 1.0f };
 		}
+		Vertices[VertexIndex] = Vert;
+		++VertexIndex;
+	}
+	VertexIndex=0;
+	for (int i = 0;i < vertexdata.count_o_vals/3;i++) {
+		Indices[VertexIndex] = VertexIndex;
+		++VertexIndex;
+	}
+	for (int i = 0, j=0; i < texturedata.count_o_vals;i += 2,j++) {
+		Vertices[j].TexCoord = {
+			texturedata.values[i+1],
+			texturedata.values[i]
+		};
 	}
 #endif
 	

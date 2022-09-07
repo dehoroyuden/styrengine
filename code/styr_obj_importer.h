@@ -1,12 +1,3 @@
-#include<iostream>
-#include<string>
-#include<fstream>
-#include <cstdlib>
-#include <Windows.h>
-
-using namespace std;
-
-typedef uint32_t u32;
 
 #define MIN 50
 #define MAX 2000000
@@ -17,11 +8,6 @@ int counter = 0;
 int chflag2 = 0;
 int pos = 0;
 char chname[MIN];
-
-struct FileData {
-	NameAndOrder* Data;
-	int count_of_objs;
-};
 
 struct retval {
 	float* values;
@@ -45,24 +31,17 @@ struct NameAndOrder {
 	char* name;
 	int farray[MAX][9];//чтобы сделать на квадраты надо поменять 9 на 12 и в функции createfstring увеличить лимит line до 12
 	PBuffer PPosition[MAX];
+	int v_count=0, vn_count=0, vt_count=0;
 };
 
-struct read_file_result
-{
-	u32 ContentsSize;
-	void* Contents;
+NameAndOrder* OSpace;
+
+struct ObjectData {
+	NameAndOrder* ObjectData;
+	int count_of_objects;
 };
 
-//special functionf for openinf and reading the file
-inline u32 SafeTruncateUInt64(uint64_t Value)
-{
-	// TODO(Denis): Defines for maximum values
-	//Assert(Value <= 0xFFFFFFFF);
-	u32 Result = (u32)Value;
-	return(Result);
-}
-
-void PlatformFreeFileMemory(void* Memory)
+void FreeFileMemory(void* Memory)
 {
 	if (Memory)
 	{
@@ -70,7 +49,7 @@ void PlatformFreeFileMemory(void* Memory)
 	}
 }
 
-read_file_result PlatformReadEntireFile(char* Filename)
+read_file_result ReadEntireFile(char* Filename)
 {
 	read_file_result Result = {};
 
@@ -93,7 +72,7 @@ read_file_result PlatformReadEntireFile(char* Filename)
 				}
 				else
 				{
-					PlatformFreeFileMemory(Result.Contents);
+					FreeFileMemory(Result.Contents);
 					Result.Contents = 0;
 				}
 			}
@@ -116,31 +95,32 @@ read_file_result PlatformReadEntireFile(char* Filename)
 	return(Result);
 }
 
-FileData CreateTheObject(char* FilePath);
+ObjectData CreateTheObject(char* FilePath);
 void creatingvalues(char values[], datatype* f, NameAndOrder* obj);
 void checkpos(int);
 void stringtofloat(NameAndOrder* obj, char* numberstr);
+void makepotency(float* potency, char* string);
 void addnumbertoarray(NameAndOrder* PP, float num);
 int markobjects(char* filedata);
 void segregator(NameAndOrder* Space, int countofobj, char* filline);
 void createfarray(char* str, int pos, NameAndOrder* obj, int line);
-retval GetVertexArray(NameAndOrder* obj, int num_of_obj);
-retval GetTextureArray(NameAndOrder* obj, int num_of_obj);
-retval GetNormalsArray(NameAndOrder* obj, int num_of_obj);
-void CleanSpace(NameAndOrder* OSpace);
+retval GetVertexArray(NameAndOrder* obj,int line);
+retval GetTextureArray(NameAndOrder* obj, int line);
+retval GetNormalsArray(NameAndOrder* obj, int line);
 
 //reading and working with data from file
-FileData CreateTheObject(char* filepath) {
+ObjectData  CreateTheObject(char* FilePath) {
+	char* filepath = FilePath;
 	read_file_result result;
-	result = PlatformReadEntireFile(filepath);
+	result = ReadEntireFile(filepath);
 	char* fileline;
 	fileline = (char*)result.Contents;
+	ObjectData Obj = {};
 	int countofobj = markobjects(fileline);
-	FileData OSpace = {};
-	OSpace.Data = (NameAndOrder*)VirtualAlloc(0, (countofobj * sizeof(NameAndOrder)), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-	segregator(OSpace.Data, 0, fileline);
-	PlatformFreeFileMemory(fileline);
-	return OSpace;
+	Obj.count_of_objects = countofobj;
+	Obj.ObjectData = (NameAndOrder*)VirtualAlloc(0, (countofobj * sizeof(NameAndOrder)), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+	segregator(Obj.ObjectData, 0, fileline);
+	return Obj;
 }
 //returns the count of objects in file
 int markobjects(char* filedata) {
@@ -240,7 +220,7 @@ void createfarray(char* str, int pos, NameAndOrder* obj, int line) {
 //separating parts of ro strings to create values for array
 void creatingvalues(char values[], datatype* f, NameAndOrder* obj) {
 	int i, j;
-	char number[15] = {};
+	char number[50] = {};
 	//initiluzing maxcounter
 	if (flag.v == 1)
 		maxcounter = 2;
@@ -252,7 +232,7 @@ void creatingvalues(char values[], datatype* f, NameAndOrder* obj) {
 	j = 0;
 
 	//getting to number values of string
-	for (i = 0;(values[i] != ' ') && (values[i] != '\r');++i) {
+	for (i = 0;(values[i] != ' ') && (values[i] != '\r') && (values[i] != '\n') && (values[i] != '\0');++i) {
 		if (values[i] < 0)
 			break;
 		else if (values[i] == '\0')
@@ -283,36 +263,78 @@ void stringtofloat(NameAndOrder* Object, char* numberstr) {
 	float numbeforebreak = 0.0;
 	float numafterbreak = 0.0;
 	float delim = 1.0;
+	float potency = 0.0;
 
 	for (i = 0;numberstr[i] != '\0';++i) {
 		if (numberstr[i] == '-')
 			sign = -1;
 		else if (numberstr[i] == '.')
 			breakpoint = true;
-		else if (breakpoint == true) {
+		else if (breakpoint == true && isdigit(numberstr[i])) {
 			numafterbreak *= 10;
 			numafterbreak += (numberstr[i] - '0');
 			delim *= 10;
 		}
-		else if (breakpoint == false) {
+		else if (breakpoint == false && isdigit(numberstr[i])) {
 			numbeforebreak *= 10;
 			numbeforebreak += (numberstr[i] - '0');
 		}
+		else if (numberstr[i] == 'e') {
+			makepotency(&potency, &numberstr[i + 1]);
+			break;
+		}
 	}
+
 
 	float fnum = 0;
 
-	fnum += (numbeforebreak + (numafterbreak / delim)) * sign;
+	if (potency != 0 && potency > 0) {
+		int coef = 1;
+		for (int i = 1; i <= potency;i++) {
+			coef *= 10;
+		}
+		fnum += (numbeforebreak + (numafterbreak / delim)) * sign * coef;
+	}
+	else if (potency != 0 && potency < 0) {
+		int coef = 1;
+		for (int i = -1; i >= potency;i--) {
+			coef /= 10;
+		}
+		fnum += (numbeforebreak + (numafterbreak / delim)) * sign * coef;
+	}
+	else
+		fnum += (numbeforebreak + (numafterbreak / delim)) * sign;
+
 	addnumbertoarray(Object, fnum);
+}
+//if count has e the func makes it to his potency
+void makepotency(float* potency, char* string) {
+	int sign = 1;
+	for (int i = 0;string[i] != '\0';i++) {
+		if (string[i] == '-') {
+			sign = -1;
+		}
+		else if (isdigit(string[i])) {
+			*potency *= 10;
+			*potency += (string[i] - '0');
+		}
+	}
+	*potency *= sign;
 }
 //adding special count to special array
 void addnumbertoarray(NameAndOrder* PP, float num) {
-	if (flag.v == 1)
+	if (flag.v == 1) {
 		PP->PPosition[pos].v[counter] = num;
-	else if (flag.vn == 1)
+		PP->v_count++;
+	}
+	else if (flag.vn == 1) {
 		PP->PPosition[pos].vn[counter] = num;
-	else if (flag.vt == 1)
+		PP->vn_count++;
+	}
+	else if (flag.vt == 1) {
 		PP->PPosition[pos].vt[counter] = num;
+		PP->vt_count++;
+	}
 
 }
 //checking the type of data like v/vn/vt
@@ -350,12 +372,19 @@ void checkpos(int chflag) {
 	}
 };
 //returning the adress to array of floats of v/vt/vn;
-retval GetVertexArray(NameAndOrder* obj, int num_of_obj) {
+retval GetVertexArray(NameAndOrder* obj, int line) {
 	retval verteces;
 	int count = 0;
 	int position = 0;
+	int minus_previous = 0;
 
-	for (int i = 0;obj[num_of_obj].farray[i][0] != 0;i++) {
+	if (line > 0)
+		for (int i = 0;i < line;i++)
+			minus_previous += obj[i].v_count;
+
+	minus_previous /= 3;
+
+	for (int i = 0;obj[line].farray[i][0] != 0;i++) {
 		count++;
 	}
 	verteces.count_o_vals = (count * 3 * 3);
@@ -363,18 +392,26 @@ retval GetVertexArray(NameAndOrder* obj, int num_of_obj) {
 	for (int i = 0;i < count;i++) {
 		for (int j = 0;j <= 8;j += 3)
 			for (int k = 0;k <= 2;k++) {
-				verteces.values[position] = obj->PPosition[(obj[num_of_obj].farray[i][j]) - 1].v[k];//-1 because the number of array begins from 0
+				verteces.values[position] = obj[line].PPosition[(obj[line].farray[i][j]) - (1 + minus_previous)].v[k];//-1 because the number of array begins from 0
 				position++;
 			}
 	}
 	return verteces;
 }
-retval GetTextureArray(NameAndOrder* obj, int num_of_obj) {
+retval GetTextureArray(NameAndOrder* obj, int line) {
 	retval verteces;
 	int count = 0;
 	int position = 0;
+	int minus_previous = 0;
 
-	for (int i = 0;obj[num_of_obj].farray[i][0] != 0;i++) {
+	if (line > 0)
+		for (int i = 0;i < line;i++)
+			minus_previous += obj[i].vt_count;
+
+	minus_previous /= 2;
+
+
+	for (int i = 0;obj[line].farray[i][0] != 0;i++) {
 		count++;
 	}
 	verteces.count_o_vals = (count * 3 * 2);
@@ -382,18 +419,26 @@ retval GetTextureArray(NameAndOrder* obj, int num_of_obj) {
 	for (int i = 0;i < count;i++) {
 		for (int j = 1;j <= 8;j += 3)
 			for (int k = 0;k <= 1;k++) {
-				verteces.values[position] = obj->PPosition[(obj[num_of_obj].farray[i][j]) - 1].vt[k];//-1 because the number of array begins from 0
+				verteces.values[position] = obj[line].PPosition[(obj[line].farray[i][j]) - (1 + minus_previous)].vt[k];//-1 because the number of array begins from 0
 				position++;
 			}
 	}
 	return verteces;
 }
-retval GetNormalsArray(NameAndOrder* obj, int num_of_obj) {
+retval GetNormalsArray(NameAndOrder* obj, int line) {
 	retval verteces;
 	int count = 0;
 	int position = 0;
+	int minus_previous = 0;
 
-	for (int i = 0;obj[num_of_obj].farray[i][0] != 0;i++) {
+	if (line > 0)
+		for (int i = 0;i < line;i++)
+			minus_previous += obj[i].vn_count;
+
+	minus_previous /= 3;
+
+
+	for (int i = 0;obj[line].farray[i][0] != 0;i++) {
 		count++;
 	}
 	verteces.count_o_vals = (count * 3 * 3);
@@ -401,13 +446,9 @@ retval GetNormalsArray(NameAndOrder* obj, int num_of_obj) {
 	for (int i = 0;i < count;i++) {
 		for (int j = 2;j <= 9;j += 3)
 			for (int k = 0;k <= 2;k++) {
-				verteces.values[position] = obj->PPosition[(obj[num_of_obj].farray[i][j]) - 1].vn[k];//-1 because the number of array begins from 0
+				verteces.values[position] = obj[line].PPosition[(obj[line].farray[i][j]) - 1].vn[k];//-1 because the number of array begins from 0
 				position++;
 			}
 	}
 	return verteces;
-}
-//cleans the space given to OSpace
-void CleanSpace(NameAndOrder* OSpace) {
-	VirtualFree(OSpace, 0, MEM_RELEASE);
 }
