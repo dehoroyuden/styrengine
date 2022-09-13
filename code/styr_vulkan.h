@@ -36,7 +36,7 @@ typedef struct vulkan_image
 
 typedef struct vulkan_renderpass
 {
-	VkRenderPass Handle;
+	VkRenderPass handle;
 	f32 DepthClearValue;
 	u32 StencilCrearValue;
 	
@@ -46,20 +46,34 @@ typedef struct vulkan_renderpass
 
 typedef struct vulkan_swapchain
 {
-	VkSwapchainKHR Handle;
+	VkSwapchainKHR handle;
 	VkSurfaceFormatKHR ImageFormat;
 	u8 MaxFramesInFlight;
 	u32 ImageCount;
 } vulkan_swapchain;
 
-typedef struct vulkan_buffer
-{} vulkan_buffer;
+typedef struct vulkan_context
+{
+	vulkan_device device;
+	vulkan_swapchain swapchain;
+	vulkan_renderpass main_renderpass;
+	vulkan_renderpass ui_renderpass;
+	
+	u32 image_index;
+	u32 current_frame;
+	
+} vulkan_context;
 
+struct UniformBufferObject
+{
+	mat4 MVP_Final;
+};
 
-internal void CreateDepthResources(VkPhysicalDevice PhysicalDevice, VkDevice LogicalDevice, VkCommandPool *CommandPool, VkQueue GraphicsQueue, VkExtent2D SwapChainExtent, VkImage *Image, VkDeviceMemory *ImageMemory, VkImageView *DepthImageView, VkSampleCountFlagBits MSAA_Samples);
+internal void 
+vk_CreateDepthResources(VkPhysicalDevice PhysicalDevice, VkDevice LogicalDevice, VkCommandPool *CommandPool, VkQueue GraphicsQueue, VkExtent2D SwapChainExtent, VkImage *Image, VkDeviceMemory *ImageMemory, VkImageView *DepthImageView, VkSampleCountFlagBits MSAA_Samples);
 
 internal void
-CreateColorResources(VkPhysicalDevice PhysicalDevice, VkDevice LogicalDevice, VkCommandPool *CommandPool, VkQueue GraphicsQueue, VkExtent2D SwapChainExtent, VkImage *Image, VkDeviceMemory *ImageMemory, VkImageView *ColorImageView, VkFormat SwapChainImageFormat, u32 MipLevels, VkSampleCountFlagBits MSAA_Samples);
+vk_CreateColorResources(VkPhysicalDevice PhysicalDevice, VkDevice LogicalDevice, VkCommandPool *CommandPool, VkQueue GraphicsQueue, VkExtent2D SwapChainExtent, VkImage *Image, VkDeviceMemory *ImageMemory, VkImageView *ColorImageView, VkFormat SwapChainImageFormat, u32 MipLevels, VkSampleCountFlagBits MSAA_Samples);
 
 struct SwapChainSupportDetails
 {
@@ -67,5 +81,7 @@ struct SwapChainSupportDetails
 	VkSurfaceFormatKHR Formats[10];
 	VkPresentModeKHR PresentModes[10];
 };
+
+
 
 #endif //STYR_VULKAN_H

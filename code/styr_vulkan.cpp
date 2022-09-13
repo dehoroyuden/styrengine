@@ -5,7 +5,7 @@
 #include "styr_vulkan.h"
 
 internal VkCommandBuffer
-BeginSingleTimeCommands(VkDevice LogicalDevice, VkCommandPool &CommandPool)
+vk_BeginSingleTimeCommands(VkDevice LogicalDevice, VkCommandPool &CommandPool)
 {
 	VkCommandBufferAllocateInfo AllocInfo = {};
 	AllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -26,7 +26,7 @@ BeginSingleTimeCommands(VkDevice LogicalDevice, VkCommandPool &CommandPool)
 }
 
 internal void
-EndSingleTimeCommands(VkCommandBuffer CommandBuffer, VkCommandPool &CommandPool, VkQueue GraphicsQueue, VkDevice LogicalDevice)
+vk_EndSingleTimeCommands(VkCommandBuffer CommandBuffer, VkCommandPool &CommandPool, VkQueue GraphicsQueue, VkDevice LogicalDevice)
 {
 	vkEndCommandBuffer(CommandBuffer);
 	
@@ -42,15 +42,15 @@ EndSingleTimeCommands(VkCommandBuffer CommandBuffer, VkCommandPool &CommandPool,
 }
 
 inline b32
-HasStencilComponent(VkFormat Format)
+vk_HasStencilComponent(VkFormat Format)
 {
 	return Format == VK_FORMAT_D32_SFLOAT_S8_UINT || Format == VK_FORMAT_D24_UNORM_S8_UINT;
 }
 
 inline void
-TransitionImageLayout(VkDevice LogicalDevice, VkCommandPool *CommandPool, VkQueue GraphicsQueue, VkImage Image, VkFormat Format, VkImageLayout OldLayout, VkImageLayout NewLayout, u32 MipLevels)
+vk_TransitionImageLayout(VkDevice LogicalDevice, VkCommandPool *CommandPool, VkQueue GraphicsQueue, VkImage Image, VkFormat Format, VkImageLayout OldLayout, VkImageLayout NewLayout, u32 MipLevels)
 {
-	VkCommandBuffer CommandBuffer = BeginSingleTimeCommands(LogicalDevice, *CommandPool);
+	VkCommandBuffer CommandBuffer = vk_BeginSingleTimeCommands(LogicalDevice, *CommandPool);
 	
 	VkImageMemoryBarrier Barrier = {};
 	Barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -72,7 +72,7 @@ TransitionImageLayout(VkDevice LogicalDevice, VkCommandPool *CommandPool, VkQueu
 	{
 		Barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
 		
-		if(HasStencilComponent(Format))
+		if(vk_HasStencilComponent(Format))
 		{
 			Barrier.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
 		}
@@ -115,13 +115,13 @@ TransitionImageLayout(VkDevice LogicalDevice, VkCommandPool *CommandPool, VkQueu
 						 0, 0,
 						 1, &Barrier);
 	
-	EndSingleTimeCommands(CommandBuffer, *CommandPool, GraphicsQueue, LogicalDevice);
+	vk_EndSingleTimeCommands(CommandBuffer, *CommandPool, GraphicsQueue, LogicalDevice);
 }
 
 internal void
-CopyBufferToImage(VkDevice LogicalDevice, VkCommandPool &CommandPool, VkQueue GraphicsQueue, VkBuffer Buffer, VkImage Image, u32 Width, u32 Height)
+vk_CopyBufferToImage(VkDevice LogicalDevice, VkCommandPool &CommandPool, VkQueue GraphicsQueue, VkBuffer Buffer, VkImage Image, u32 Width, u32 Height)
 {
-	VkCommandBuffer CommandBuffer = BeginSingleTimeCommands(LogicalDevice, CommandPool);
+	VkCommandBuffer CommandBuffer = vk_BeginSingleTimeCommands(LogicalDevice, CommandPool);
 	
 	VkBufferImageCopy Region = {};
 	Region.bufferOffset = 0;
@@ -148,11 +148,11 @@ CopyBufferToImage(VkDevice LogicalDevice, VkCommandPool &CommandPool, VkQueue Gr
 						   1,
 						   &Region);
 	
-	EndSingleTimeCommands(CommandBuffer, CommandPool, GraphicsQueue, LogicalDevice);
+	vk_EndSingleTimeCommands(CommandBuffer, CommandPool, GraphicsQueue, LogicalDevice);
 }
 
 internal VkFormat 
-FindSupportedFormat(VkPhysicalDevice PhysicalDevice,  VkFormat *Candidates, u32 CandidatesCount, VkImageTiling Tiling, VkFormatFeatureFlags Features)
+vk_FindSupportedFormat(VkPhysicalDevice PhysicalDevice,  VkFormat *Candidates, u32 CandidatesCount, VkImageTiling Tiling, VkFormatFeatureFlags Features)
 {
 	for(u32 Index = 0;
 		Index < CandidatesCount;
@@ -177,17 +177,17 @@ FindSupportedFormat(VkPhysicalDevice PhysicalDevice,  VkFormat *Candidates, u32 
 }
 
 internal VkFormat
-FindDepthFormat(VkPhysicalDevice PhysicalDevice)
+vk_FindDepthFormat(VkPhysicalDevice PhysicalDevice)
 {
 	VkFormat Formats[] = {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT};
-	return FindSupportedFormat(PhysicalDevice, Formats,
-							   ArrayCount(Formats),
-							   VK_IMAGE_TILING_OPTIMAL,
-							   VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
+	return vk_FindSupportedFormat(PhysicalDevice, Formats,
+								  ArrayCount(Formats),
+								  VK_IMAGE_TILING_OPTIMAL,
+								  VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
 }
 
 internal VkRenderPass
-CreateRenderPass(VkPhysicalDevice PhysicalDevice, VkDevice LogicDevice, VkFormat SwapChainImageFormat, VkSampleCountFlagBits MSAA_Samples, b32 UIRenderPass)
+vk_CreateRenderPass_world(VkPhysicalDevice PhysicalDevice, VkDevice LogicDevice, VkFormat SwapChainImageFormat, VkSampleCountFlagBits MSAA_Samples)
 {
 	VkRenderPass Result = {};
 	
@@ -195,7 +195,7 @@ CreateRenderPass(VkPhysicalDevice PhysicalDevice, VkDevice LogicDevice, VkFormat
 	VkAttachmentDescription ColorAttachment = {};
 	ColorAttachment.format = SwapChainImageFormat;
 	ColorAttachment.samples = MSAA_Samples;
-	ColorAttachment.loadOp = UIRenderPass ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR; // Clearing to black buffer before using!
+	ColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; // Clearing to black buffer
 	ColorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	ColorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE; // Clearing to black buffer before using!
 	ColorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -205,7 +205,7 @@ CreateRenderPass(VkPhysicalDevice PhysicalDevice, VkDevice LogicDevice, VkFormat
 	VkAttachmentDescription ColorAttachmentResolve = {};
 	ColorAttachmentResolve.format = SwapChainImageFormat;
 	ColorAttachmentResolve.samples = VK_SAMPLE_COUNT_1_BIT;
-	ColorAttachmentResolve.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE; // Clearing to black buffer before using!
+	ColorAttachmentResolve.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; // Clearing to black buffer before using!
 	ColorAttachmentResolve.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	ColorAttachmentResolve.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE; // Clearing to black buffer before using!
 	ColorAttachmentResolve.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -225,13 +225,13 @@ CreateRenderPass(VkPhysicalDevice PhysicalDevice, VkDevice LogicDevice, VkFormat
 	
 	// Depth Attachment description
 	VkAttachmentDescription DepthAttachnment = {};
-	DepthAttachnment.format = FindDepthFormat(PhysicalDevice);
+	DepthAttachnment.format = vk_FindDepthFormat(PhysicalDevice);
 	DepthAttachnment.samples = MSAA_Samples;
 	DepthAttachnment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	DepthAttachnment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	DepthAttachnment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	DepthAttachnment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	DepthAttachnment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	DepthAttachnment.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 	DepthAttachnment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 	// End of Depth Attachment description
 	
@@ -246,17 +246,17 @@ CreateRenderPass(VkPhysicalDevice PhysicalDevice, VkDevice LogicDevice, VkFormat
 	Subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 	Subpass.colorAttachmentCount = 1;
 	Subpass.pColorAttachments = &ColorAttachmentReference;
-	Subpass.pDepthStencilAttachment = UIRenderPass ? 0 : &DepthAttachmentReference;
+	Subpass.pDepthStencilAttachment = &DepthAttachmentReference;
 	Subpass.pResolveAttachments = &ColorAttachmentResolveReference;
 	// End of Subpass
 	
 	// Render Pass
-	VkAttachmentDescription AttachmentsWithDepth[] = {ColorAttachment, DepthAttachnment, ColorAttachmentResolve};
-	VkAttachmentDescription AttachmentsOnlyColor[] = {ColorAttachment, ColorAttachmentResolve};
+	VkAttachmentDescription Attachments[] = {ColorAttachment, DepthAttachnment, ColorAttachmentResolve};
+	
 	VkRenderPassCreateInfo RenderPassInfo = {};
 	RenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-	RenderPassInfo.attachmentCount = UIRenderPass ? ArrayCount(AttachmentsOnlyColor) : ArrayCount(AttachmentsWithDepth);
-	RenderPassInfo.pAttachments = UIRenderPass ? AttachmentsOnlyColor : AttachmentsWithDepth;
+	RenderPassInfo.attachmentCount = ArrayCount(Attachments);
+	RenderPassInfo.pAttachments = Attachments;
 	RenderPassInfo.subpassCount = 1;
 	RenderPassInfo.pSubpasses = &Subpass;
 	
@@ -264,10 +264,85 @@ CreateRenderPass(VkPhysicalDevice PhysicalDevice, VkDevice LogicDevice, VkFormat
 	VkSubpassDependency SubpassDependency = {};
 	SubpassDependency.srcSubpass = VK_SUBPASS_EXTERNAL;
 	SubpassDependency.dstSubpass = 0;
+	
 	SubpassDependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-	SubpassDependency.srcAccessMask = UIRenderPass ? VK_ACCESS_COLOR_ATTACHMENT_READ_BIT : 0;
+	SubpassDependency.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
 	SubpassDependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
 	SubpassDependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+	
+	RenderPassInfo.dependencyCount = 1;
+	RenderPassInfo.pDependencies = &SubpassDependency;
+	
+	ShowVulkanResult(vkCreateRenderPass(LogicDevice, &RenderPassInfo, 0, &Result), "Render pass created : %s");
+	
+	return Result;
+}
+
+internal VkRenderPass
+vk_CreateRenderPass_ui(VkPhysicalDevice PhysicalDevice, VkDevice LogicDevice, VkFormat SwapChainImageFormat, VkSampleCountFlagBits MSAA_Samples)
+{
+	VkRenderPass Result = {};
+	
+	// Attachment description
+	VkAttachmentDescription ColorAttachment = {};
+	ColorAttachment.format = SwapChainImageFormat;
+	ColorAttachment.samples = MSAA_Samples;
+	ColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD; // Clearing to black buffer
+	ColorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	ColorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE; // Clearing to black buffer before using!
+	ColorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	ColorAttachment.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	ColorAttachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	
+	VkAttachmentDescription ColorAttachmentResolve = {};
+	ColorAttachmentResolve.format = SwapChainImageFormat;
+	ColorAttachmentResolve.samples = VK_SAMPLE_COUNT_1_BIT;
+	ColorAttachmentResolve.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD; // Clearing to black buffer before using!
+	ColorAttachmentResolve.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	ColorAttachmentResolve.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE; // Clearing to black buffer before using!
+	ColorAttachmentResolve.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	ColorAttachmentResolve.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	ColorAttachmentResolve.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;//VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	// End of Attachment description
+	
+	// Subpasses and attachments references
+	VkAttachmentReference ColorAttachmentReference = {};
+	ColorAttachmentReference.attachment = 0;
+	ColorAttachmentReference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	
+	VkAttachmentReference ColorAttachmentResolveReference = {};
+	ColorAttachmentResolveReference.attachment = 1;
+	ColorAttachmentResolveReference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	// End of Subpasses and attachments references
+	
+	// Subpass
+	VkSubpassDescription Subpass = {};
+	Subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	Subpass.colorAttachmentCount = 1;
+	Subpass.pColorAttachments = &ColorAttachmentReference;
+	Subpass.pResolveAttachments = &ColorAttachmentResolveReference;
+	// End of Subpass
+	
+	// Render Pass
+	VkAttachmentDescription Attachments[] = {ColorAttachment, ColorAttachmentResolve};
+	
+	// Subpass dependencies
+	VkSubpassDependency SubpassDependency = {};
+	SubpassDependency.srcSubpass = 0;//VK_SUBPASS_EXTERNAL;
+	SubpassDependency.dstSubpass = VK_SUBPASS_EXTERNAL;//0
+	
+	SubpassDependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	SubpassDependency.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+	SubpassDependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	SubpassDependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	
+	
+	VkRenderPassCreateInfo RenderPassInfo = {};
+	RenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	RenderPassInfo.attachmentCount = ArrayCount(Attachments);
+	RenderPassInfo.pAttachments = Attachments;
+	RenderPassInfo.subpassCount = 1;
+	RenderPassInfo.pSubpasses = &Subpass;
 	RenderPassInfo.dependencyCount = 1;
 	RenderPassInfo.pDependencies = &SubpassDependency;
 	
@@ -277,17 +352,37 @@ CreateRenderPass(VkPhysicalDevice PhysicalDevice, VkDevice LogicDevice, VkFormat
 }
 
 internal void
-RecordCommandBuffer(VkCommandBuffer CommandBuffer, VkRenderPass RenderPass, VkPipeline GraphicsPipeline, VkPipelineLayout PipelineLayout, VkDescriptorSet *DescriptorSets, VkFramebuffer *SwapChainFramebuffers, VkExtent2D &SwapChainExtent, VkBuffer VertexBuffer, VkBuffer IndexBuffer, u32 VerticesCount, u32 IndicesCount, u32 CurrentFrame, u32 ImageIndex)
+vk_CommandBuffersBegin(VkCommandBuffer *vk_command_buffers, u32 Count)
+{
+	for(u32 Index = 0; Index < Count; ++Index)
+	{
+		VkCommandBufferBeginInfo CommandBufferBeginInfo = {};
+		CommandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		CommandBufferBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+		CommandBufferBeginInfo.pInheritanceInfo = 0;
+		
+		b32 IsCommandBufferBeginInfoCreated = false;
+		IsCommandBufferBeginInfoCreated = (vkBeginCommandBuffer(vk_command_buffers[Index], &CommandBufferBeginInfo) == VK_SUCCESS);
+		Assert(IsCommandBufferBeginInfoCreated);
+	}
+}
+
+internal void
+vk_CommandBuffersEnd(VkCommandBuffer *vk_command_buffers, u32 Count)
+{
+	for(u32 Index = 0; Index < Count; ++Index)
+	{
+		b32 IsEndCommandBuffer = false;
+		IsEndCommandBuffer = (vkEndCommandBuffer(vk_command_buffers[Index]) == VK_SUCCESS);
+		Assert(IsEndCommandBuffer);
+	}
+}
+
+internal void
+vk_RecordCommandBuffer(VkCommandBuffer CommandBuffer, VkRenderPass RenderPass, VkPipeline GraphicsPipeline, VkPipelineLayout PipelineLayout, VkDescriptorSet *DescriptorSets, VkFramebuffer *SwapChainFramebuffers, VkExtent2D &SwapChainExtent, VkBuffer VertexBuffer, VkBuffer IndexBuffer, u32 VerticesCount, u32 IndicesCount, u32 CurrentFrame, u32 ImageIndex, b32 ui_used)
 {
 	// COMMAND BUFFER RECORDING
-	VkCommandBufferBeginInfo CommandBufferBeginInfo = {};
-	CommandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-	CommandBufferBeginInfo.flags = 0;
-	CommandBufferBeginInfo.pInheritanceInfo = 0;
-	b32 IsCommandBufferBeginInfoCreated = false;
-	IsCommandBufferBeginInfoCreated = (vkBeginCommandBuffer(CommandBuffer, &CommandBufferBeginInfo) == VK_SUCCESS);
-	Assert(IsCommandBufferBeginInfoCreated);
-	// End of COMMAND BUFFER RECORDING
+	vk_CommandBuffersBegin(&CommandBuffer, 1);
 	
 	// Starting a Render Pass
 	VkRenderPassBeginInfo RenderPassBeginInfo = {};
@@ -298,14 +393,14 @@ RecordCommandBuffer(VkCommandBuffer CommandBuffer, VkRenderPass RenderPass, VkPi
 	RenderPassBeginInfo.renderArea.extent = SwapChainExtent;
 	
 	// NOTE(Denis): Note that the order of clearValues should be identical to the order of our attachments.
-	VkClearValue ClearValues[2];
-	ClearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+	VkClearValue ClearValues[3];
+	ClearValues[0].color = {{0.0f, 0.0f, 0.05f, 1.0f}};
 	ClearValues[1].depthStencil = {1.0f,0};
+	ClearValues[2].color = {{0.0f, 0.05f, 0.0f, 1.0f}};
 	
-	RenderPassBeginInfo.clearValueCount = ArrayCount(ClearValues);
-	RenderPassBeginInfo.pClearValues = ClearValues;
+	RenderPassBeginInfo.clearValueCount = ui_used ? 0 : ArrayCount(ClearValues);
+	RenderPassBeginInfo.pClearValues = ui_used ? 0 : ClearValues;
 	vkCmdBeginRenderPass(CommandBuffer, &RenderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
-	// End of Starting a Render Pass 
 	
 	// Basic drawing commands
 	VkViewport Viewport = {};
@@ -331,16 +426,13 @@ RecordCommandBuffer(VkCommandBuffer CommandBuffer, VkRenderPass RenderPass, VkPi
 	vkCmdDrawIndexed(CommandBuffer, IndicesCount, 1, 0, 0, 0);
 	vkCmdEndRenderPass(CommandBuffer);
 	
-	b32 IsEndCommandBuffer = false;
-	IsEndCommandBuffer = (vkEndCommandBuffer(CommandBuffer) == VK_SUCCESS);
-	Assert(IsEndCommandBuffer);
-	// End of Basic drawing commands
+	vk_CommandBuffersEnd(&CommandBuffer, 1);
 }
 
 internal void
-CreateSwapChain(u32 QueueFamilyCount, VkQueueFamilyProperties *QueueFamilies, VkPhysicalDevice PhysicalDevice,
-				VkSurfaceKHR VulkanWindowSurface, queue_family_indices QueueIndices, f32 QueuePriority,
-				VkDeviceCreateInfo &CreateDeviceInfo, VkDevice LogicalDevice, VkFormat &SwapChainImageFormat, VkSwapchainKHR &SwapChain, VkExtent2D &SwapChainExtent, VkQueue &PresentQueue, VkImage *SwapChainImages, u32 &ImageCountOutside)
+vk_CreateSwapChain(u32 QueueFamilyCount, VkQueueFamilyProperties *QueueFamilies, VkPhysicalDevice PhysicalDevice,
+				   VkSurfaceKHR VulkanWindowSurface, queue_family_indices QueueIndices, f32 QueuePriority,
+				   VkDeviceCreateInfo &CreateDeviceInfo, VkDevice LogicalDevice, VkFormat &SwapChainImageFormat, VkSwapchainKHR &SwapChain, VkExtent2D &SwapChainExtent, VkQueue &PresentQueue, VkImage *SwapChainImages, u32 &ImageCountOutside)
 {
 	// Creating presentation queue
 	for(u32 QueueFamilyIndex = 0;
@@ -530,7 +622,7 @@ CreateSwapChain(u32 QueueFamilyCount, VkQueueFamilyProperties *QueueFamilies, Vk
 }
 
 internal VkImageView
-CreateImageView(VkDevice LogicalDevice, VkImage Image, VkFormat Format, VkImageAspectFlags AspectFlags, u32 MipLevels)
+vk_CreateImageView(VkDevice LogicalDevice, VkImage Image, VkFormat Format, VkImageAspectFlags AspectFlags, u32 MipLevels)
 {
 	VkImageViewCreateInfo ImageViewCreateInfo = {};
 	ImageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -552,53 +644,51 @@ CreateImageView(VkDevice LogicalDevice, VkImage Image, VkFormat Format, VkImageA
 }
 
 internal void
-CreateImageViews(VkImageView *SwapChainImageViews, VkImage *SwapChainImages, VkFormat &SwapChainImageFormat, VkDevice LogicDevice, u32 ImageCount)
+vk_CreateImageViews(VkImageView *SwapChainImageViews, VkImage *SwapChainImages, VkFormat &SwapChainImageFormat, VkDevice LogicDevice, u32 ImageCount)
 {
 	for(u32 Index = 0;
 		Index < ImageCount;
 		++Index)
 	{
-		SwapChainImageViews[Index] = CreateImageView(LogicDevice, SwapChainImages[Index], SwapChainImageFormat, VK_IMAGE_ASPECT_COLOR_BIT, 1);
+		SwapChainImageViews[Index] = vk_CreateImageView(LogicDevice, SwapChainImages[Index], SwapChainImageFormat, VK_IMAGE_ASPECT_COLOR_BIT, 1);
 	}
 }
 
 internal void
-CreateFramebuffers(VkImageView *SwapChainImageViews, u32 ImageViewsCount, VkImageView DepthImageView, VkImageView ColorImageView, VkExtent2D &SwapChainExtent, VkRenderPass RenderPass, VkDevice LogicalDevice,
-				   VkFramebuffer *SwapChainFramebuffers)
+vk_CreateFramebuffers(VkDevice LogicalDevice, VkImageView *SwapChainImageViews, u32 ImageViewsCount, VkImageView DepthImageView, VkImageView ColorImageView, VkExtent2D &SwapChainExtent, VkRenderPass WorldRenderPass, VkRenderPass UIRenderPass,
+					  VkFramebuffer *swap_chain_framebuffers, VkFramebuffer *ui_framebuffers)
 {
 	for(u32 Index = 0;
 		Index < ImageViewsCount;
 		++Index)
 	{
-		VkImageView Attachments[] = {ColorImageView, DepthImageView, SwapChainImageViews[Index]};
-		
+		VkImageView WorldAttachments[] = {ColorImageView, DepthImageView, SwapChainImageViews[Index]};
 		VkFramebufferCreateInfo FramebufferInfo = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-		FramebufferInfo.renderPass = RenderPass;
-		FramebufferInfo.attachmentCount = ArrayCount(Attachments);
-		FramebufferInfo.pAttachments = Attachments;
+		FramebufferInfo.renderPass = WorldRenderPass;
+		FramebufferInfo.attachmentCount = ArrayCount(WorldAttachments);
+		FramebufferInfo.pAttachments = WorldAttachments;
 		FramebufferInfo.width = SwapChainExtent.width;
 		FramebufferInfo.height = SwapChainExtent.height;
 		FramebufferInfo.layers = 1;
-		b32 IsFramebufferCreated = ((vkCreateFramebuffer(LogicalDevice, &FramebufferInfo, 0, &SwapChainFramebuffers[Index])) == VK_SUCCESS);
+		b32 IsFramebufferCreated = ((vkCreateFramebuffer(LogicalDevice, &FramebufferInfo, 0, &swap_chain_framebuffers[Index])) == VK_SUCCESS);
 		Assert(IsFramebufferCreated);
-#if 0
-		VkImageView UIAttachments[] = {SwapChainImageViews[Index]};
+		
+		VkImageView UIAttachments[] = {ColorImageView, SwapChainImageViews[Index]};
 		VkFramebufferCreateInfo UIFramebufferInfo = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-		UIFramebufferInfo.renderPass = RenderPass;
+		UIFramebufferInfo.renderPass = UIRenderPass;
 		UIFramebufferInfo.attachmentCount = ArrayCount(UIAttachments);
 		UIFramebufferInfo.pAttachments = UIAttachments;
 		UIFramebufferInfo.width = SwapChainExtent.width;
 		UIFramebufferInfo.height = SwapChainExtent.height;
 		UIFramebufferInfo.layers = 1;
 		
-		IsFramebufferCreated = ((vkCreateFramebuffer(LogicalDevice, &UIFramebufferInfo, 0, &SwapChainFramebuffers[Index])) == VK_SUCCESS);
+		IsFramebufferCreated = ((vkCreateFramebuffer(LogicalDevice, &UIFramebufferInfo, 0, &ui_framebuffers[Index])) == VK_SUCCESS);
 		Assert(IsFramebufferCreated);
-#endif
 	}
 }
 
 internal void
-CleanupSwapChain(VkDevice LogicDevice, VkFramebuffer *SwapChainFramebuffers, u32 SwapChainFramebuffersCount, VkImageView *SwapChainImageViews, u32 SwapChainImageViewsCount, VkSwapchainKHR SwapChain)
+vk_CleanupSwapChain(VkDevice LogicDevice, VkFramebuffer *SwapChainFramebuffers, u32 SwapChainFramebuffersCount, VkImageView *SwapChainImageViews, u32 SwapChainImageViewsCount, VkSwapchainKHR SwapChain)
 {
 	for(u32 Index = 0;
 		Index < SwapChainFramebuffersCount;
@@ -618,9 +708,9 @@ CleanupSwapChain(VkDevice LogicDevice, VkFramebuffer *SwapChainFramebuffers, u32
 }
 
 internal void
-RecreateSwapChain(u32 QueueFamilyCount, VkQueueFamilyProperties *QueueFamilies, VkPhysicalDevice PhysicalDevice,
-				  VkSurfaceKHR VulkanWindowSurface, queue_family_indices QueueIndices, f32 QueuePriority,
-				  VkDeviceCreateInfo &CreateDeviceInfo, VkDevice LogicDevice, VkCommandPool *CommandPool, VkQueue *GraphicQueue, VkFormat &SwapChainImageFormat, VkFramebuffer *SwapChainFramebuffers, u32 SwapChainFramebuffersCount, VkImageView *SwapChainImageViews, u32 SwapChainImageViewsCount, VkImageView DepthImageView, VkImage *DepthImage, VkDeviceMemory *DepthImageMemory, VkImageView ColorImageView, VkImage *ColorImage, VkDeviceMemory *ColorImageMemory,VkSwapchainKHR &SwapChain, VkExtent2D &SwapChainExtent, VkQueue &PresentQueue, VkImage *SwapChainImages, u32 SwapChainImagesCount, u32 MipLevels,  VkRenderPass RenderPass, u32 &ImageCountOutside, VkSampleCountFlagBits MSAA_Samples)
+vk_RecreateSwapChain(u32 QueueFamilyCount, VkQueueFamilyProperties *QueueFamilies, VkPhysicalDevice PhysicalDevice,
+					 VkSurfaceKHR VulkanWindowSurface, queue_family_indices QueueIndices, f32 QueuePriority,
+					 VkDeviceCreateInfo &CreateDeviceInfo, VkDevice LogicDevice, VkCommandPool *CommandPool, VkQueue *GraphicQueue, VkFormat &SwapChainImageFormat, VkFramebuffer *world_framebuffers, VkFramebuffer *ui_framebuffers, u32 WorldFramebuffersCount, u32 UIFramebuffersCount, VkImageView *SwapChainImageViews, u32 SwapChainImageViewsCount, VkImageView DepthImageView, VkImage *DepthImage, VkDeviceMemory *DepthImageMemory, VkImageView ColorImageView, VkImage *ColorImage, VkDeviceMemory *ColorImageMemory,VkSwapchainKHR &SwapChain, VkExtent2D &SwapChainExtent, VkQueue &PresentQueue, VkImage *SwapChainImages, u32 SwapChainImagesCount, u32 MipLevels,  VkRenderPass WorldRenderPass, VkRenderPass UIRenderPass, u32 &ImageCountOutside, VkSampleCountFlagBits MSAA_Samples)
 {
 	u32 Width = 0;
 	u32 Height = 0;
@@ -639,21 +729,22 @@ RecreateSwapChain(u32 QueueFamilyCount, VkQueueFamilyProperties *QueueFamilies, 
 	
 	vkDeviceWaitIdle(LogicDevice);
 	
-	CleanupSwapChain(LogicDevice, SwapChainFramebuffers, SwapChainFramebuffersCount, SwapChainImageViews, SwapChainImageViewsCount, SwapChain);
+	vk_CleanupSwapChain(LogicDevice, world_framebuffers, WorldFramebuffersCount, SwapChainImageViews, SwapChainImageViewsCount, SwapChain);
 	
-	CreateSwapChain(QueueFamilyCount, QueueFamilies,PhysicalDevice, VulkanWindowSurface, QueueIndices, QueuePriority,
-					CreateDeviceInfo, LogicDevice, SwapChainImageFormat, SwapChain,SwapChainExtent, PresentQueue, SwapChainImages, ImageCountOutside);
+	vk_CreateSwapChain(QueueFamilyCount, QueueFamilies,PhysicalDevice, VulkanWindowSurface, QueueIndices, QueuePriority,
+					   CreateDeviceInfo, LogicDevice, SwapChainImageFormat, SwapChain, SwapChainExtent, PresentQueue, SwapChainImages, ImageCountOutside);
 	
-	CreateImageViews(SwapChainImageViews, SwapChainImages, SwapChainImageFormat, LogicDevice, ImageCountOutside);
+	vk_CreateImageViews(SwapChainImageViews, SwapChainImages, SwapChainImageFormat, LogicDevice, ImageCountOutside);
 	
-	CreateColorResources(PhysicalDevice, LogicDevice, CommandPool, *GraphicQueue, SwapChainExtent, ColorImage, ColorImageMemory, &ColorImageView, SwapChainImageFormat, MipLevels, MSAA_Samples);
+	vk_CreateColorResources(PhysicalDevice, LogicDevice, CommandPool, *GraphicQueue, SwapChainExtent, ColorImage, ColorImageMemory, &ColorImageView, SwapChainImageFormat, (MipLevels == 0 ? 1 : MipLevels), MSAA_Samples);
 	
-	CreateDepthResources(PhysicalDevice, LogicDevice, CommandPool, *GraphicQueue, SwapChainExtent, DepthImage, DepthImageMemory, &DepthImageView, MSAA_Samples);
+	vk_CreateDepthResources(PhysicalDevice, LogicDevice, CommandPool, *GraphicQueue, SwapChainExtent, DepthImage, DepthImageMemory, &DepthImageView, MSAA_Samples);
 	
-	CreateFramebuffers(SwapChainImageViews, SwapChainImageViewsCount, DepthImageView, ColorImageView, SwapChainExtent, RenderPass, LogicDevice, SwapChainFramebuffers);
+	vk_CreateFramebuffers(LogicDevice, SwapChainImageViews, SwapChainImageViewsCount, DepthImageView, ColorImageView, SwapChainExtent, WorldRenderPass, UIRenderPass, world_framebuffers, ui_framebuffers);
 }
 
-u32 FindMemoryType(VkPhysicalDevice PhysicalDevice, u32 TypeFilter, VkMemoryPropertyFlags Properties)
+u32 
+vk_FindMemoryType(VkPhysicalDevice PhysicalDevice, u32 TypeFilter, VkMemoryPropertyFlags Properties)
 {
 	VkPhysicalDeviceMemoryProperties MemProperties;
 	vkGetPhysicalDeviceMemoryProperties(PhysicalDevice, &MemProperties);
@@ -674,7 +765,7 @@ u32 FindMemoryType(VkPhysicalDevice PhysicalDevice, u32 TypeFilter, VkMemoryProp
 }
 
 inline void 
-CreateBuffer(VkPhysicalDevice PhysicalDevice, VkDevice LogicalDevice, VkDeviceSize Size, VkBufferUsageFlags Usage, VkMemoryPropertyFlags Properties, VkBuffer *Buffer, VkDeviceMemory *BufferMemory)
+vk_CreateBuffer(VkPhysicalDevice PhysicalDevice, VkDevice LogicalDevice, VkDeviceSize Size, VkBufferUsageFlags Usage, VkMemoryPropertyFlags Properties, VkBuffer *Buffer, VkDeviceMemory *BufferMemory)
 {
 	VkBufferCreateInfo BufferInfo = {};
 	BufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -690,7 +781,7 @@ CreateBuffer(VkPhysicalDevice PhysicalDevice, VkDevice LogicalDevice, VkDeviceSi
 	VkMemoryAllocateInfo AllocInfo = {};
 	AllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
 	AllocInfo.allocationSize = MemRequirements.size;
-	AllocInfo.memoryTypeIndex = FindMemoryType(PhysicalDevice, MemRequirements.memoryTypeBits, Properties);
+	AllocInfo.memoryTypeIndex = vk_FindMemoryType(PhysicalDevice, MemRequirements.memoryTypeBits, Properties);
 	
 	ShowVulkanResult(vkAllocateMemory(LogicalDevice, &AllocInfo, 0, BufferMemory), "Buffer Memory Allocated : %s");
 	
@@ -698,71 +789,70 @@ CreateBuffer(VkPhysicalDevice PhysicalDevice, VkDevice LogicalDevice, VkDeviceSi
 }
 
 inline void
-CopyBuffer(VkDevice LogicalDevice, VkCommandPool *CommandPool, VkQueue GraphicsQueue, VkBuffer SrcBuffer, VkBuffer DstBuffer, VkDeviceSize Size)
+vk_CopyBuffer(VkDevice LogicalDevice, VkCommandPool *CommandPool, VkQueue GraphicsQueue, VkBuffer SrcBuffer, VkBuffer DstBuffer, VkDeviceSize Size)
 {
-	VkCommandBuffer CommandBuffer = BeginSingleTimeCommands(LogicalDevice, *CommandPool);
+	VkCommandBuffer CommandBuffer = vk_BeginSingleTimeCommands(LogicalDevice, *CommandPool);
 	
 	VkBufferCopy CopyRegion = {};
 	CopyRegion.size = Size;
 	vkCmdCopyBuffer(CommandBuffer, SrcBuffer, DstBuffer, 1, &CopyRegion);
 	
-	EndSingleTimeCommands(CommandBuffer,*CommandPool, GraphicsQueue, LogicalDevice);
+	vk_EndSingleTimeCommands(CommandBuffer,*CommandPool, GraphicsQueue, LogicalDevice);
 }
 
 inline void
-CreateVertexBuffer(VkCommandPool *CommandPool, VkQueue GraphicsQueue, VkBuffer &VertexBuffer, VkDeviceMemory *VertexBufferMemory, VkPhysicalDevice PhysicalDevice,
-				   VkDevice LogicalDevice, vertex *Vertices, u32 VertexCount)
+vk_CreateVertexBuffer(VkCommandPool *CommandPool, VkQueue GraphicsQueue, VkBuffer &VertexBuffer, VkDeviceMemory *VertexBufferMemory, VkPhysicalDevice PhysicalDevice, VkDevice LogicalDevice, void *Vertices, u32 VertexSize, u32 VertexCount)
 {
-	VkDeviceSize BufferSize = VertexCount * sizeof(vertex);
+	VkDeviceSize BufferSize = VertexCount * VertexSize;
 	
 	VkBuffer StagingBuffer = {};
 	VkDeviceMemory StagingBufferMemory = {};
-	CreateBuffer(PhysicalDevice, LogicalDevice, BufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 
-				 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |  VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, 
-				 &StagingBuffer, &StagingBufferMemory);
+	vk_CreateBuffer(PhysicalDevice, LogicalDevice, BufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 
+					VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |  VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, 
+					&StagingBuffer, &StagingBufferMemory);
 	
 	void *VertexBufferData;
 	vkMapMemory(LogicalDevice, StagingBufferMemory, 0 , BufferSize, 0, &VertexBufferData);
 	memcpy(VertexBufferData, Vertices, BufferSize);
 	vkUnmapMemory(LogicalDevice, StagingBufferMemory);
 	
-	CreateBuffer(PhysicalDevice, LogicalDevice, BufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, 
-				 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &VertexBuffer, VertexBufferMemory);
+	vk_CreateBuffer(PhysicalDevice, LogicalDevice, BufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, 
+					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &VertexBuffer, VertexBufferMemory);
 	
-	CopyBuffer(LogicalDevice, CommandPool, GraphicsQueue, StagingBuffer, VertexBuffer, BufferSize);
+	vk_CopyBuffer(LogicalDevice, CommandPool, GraphicsQueue, StagingBuffer, VertexBuffer, BufferSize);
 	
 	vkDestroyBuffer(LogicalDevice, StagingBuffer, 0);
 	vkFreeMemory(LogicalDevice, StagingBufferMemory, 0);
 }
 
 inline void
-CreateIndexBuffer(VkCommandPool *CommandPool, VkQueue GraphicsQueue, VkBuffer &IndicesBuffer, VkDeviceMemory *IndicesBufferMemory, VkPhysicalDevice PhysicalDevice,
-				  VkDevice LogicalDevice, u32 *Indices, u32 IndicesCount)
+vk_CreateIndexBuffer(VkCommandPool *CommandPool, VkQueue GraphicsQueue, VkBuffer &IndicesBuffer, VkDeviceMemory *IndicesBufferMemory, VkPhysicalDevice PhysicalDevice,
+					 VkDevice LogicalDevice, u32 *Indices, u32 IndicesCount)
 {
 	VkDeviceSize BufferSize = IndicesCount * sizeof(u32);
 	
 	VkBuffer StagingBuffer = {};
 	VkDeviceMemory StagingBufferMemory = {};
-	CreateBuffer(PhysicalDevice, LogicalDevice, BufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 
-				 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |  VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, 
-				 &StagingBuffer, &StagingBufferMemory);
+	vk_CreateBuffer(PhysicalDevice, LogicalDevice, BufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 
+					VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |  VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, 
+					&StagingBuffer, &StagingBufferMemory);
 	
 	void *IndicesBufferData;
 	vkMapMemory(LogicalDevice, StagingBufferMemory, 0 , BufferSize, 0, &IndicesBufferData);
 	memcpy(IndicesBufferData, Indices, BufferSize);
 	vkUnmapMemory(LogicalDevice, StagingBufferMemory);
 	
-	CreateBuffer(PhysicalDevice, LogicalDevice, BufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, 
-				 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &IndicesBuffer, IndicesBufferMemory);
+	vk_CreateBuffer(PhysicalDevice, LogicalDevice, BufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, 
+					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &IndicesBuffer, IndicesBufferMemory);
 	
-	CopyBuffer(LogicalDevice, CommandPool, GraphicsQueue, StagingBuffer, IndicesBuffer, BufferSize);
+	vk_CopyBuffer(LogicalDevice, CommandPool, GraphicsQueue, StagingBuffer, IndicesBuffer, BufferSize);
 	
 	vkDestroyBuffer(LogicalDevice, StagingBuffer, 0);
 	vkFreeMemory(LogicalDevice, StagingBufferMemory, 0);
 }
 
 inline void
-CreateDescriptorSetLayout(VkDevice LogicDevice, VkDescriptorSetLayout *DescriptorSetLayout)
+vk_CreateDescriptorSetLayout(VkDevice LogicDevice, VkDescriptorSetLayout *DescriptorSetLayout)
 {
 	VkDescriptorSetLayoutBinding UboLayoutBinding = {};
 	UboLayoutBinding.binding = 0;
@@ -790,7 +880,7 @@ CreateDescriptorSetLayout(VkDevice LogicDevice, VkDescriptorSetLayout *Descripto
 }
 
 internal void
-CreateUniformBuffers(memory_chunk *TranArena, VkPhysicalDevice PhysicalDevice, VkDevice LogicalDevice, VkBuffer *UniformBuffers, VkDeviceMemory *UniformBuffersMemory)
+vk_CreateUniformBuffers(memory_chunk *TranArena, VkPhysicalDevice PhysicalDevice, VkDevice LogicalDevice, VkBuffer *UniformBuffers, VkDeviceMemory *UniformBuffersMemory)
 {
 	VkDeviceSize BufferSize = sizeof(UniformBufferObject);
 	
@@ -798,32 +888,77 @@ CreateUniformBuffers(memory_chunk *TranArena, VkPhysicalDevice PhysicalDevice, V
 		Index < MAX_FRAMES_IN_FLIGHT;
 		++Index)
 	{
-		CreateBuffer(PhysicalDevice, LogicalDevice, BufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &UniformBuffers[Index], &UniformBuffersMemory[Index]);
+		vk_CreateBuffer(PhysicalDevice, LogicalDevice, BufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &UniformBuffers[Index], &UniformBuffersMemory[Index]);
 	}
 }
 
 internal void
-Win32UpdateUniformBuffer(VkDevice LogicDevice, VkExtent2D SwapChainExtent, VkDeviceMemory *UniformBuffersMemory, engine_render_commands Commands, u32 CurrentImage)
+vk_UpdateUniformBuffer(VkDevice LogicDevice, VkExtent2D SwapChainExtent, VkDeviceMemory *UniformBuffersMemory, engine_render_commands Commands, u32 CurrentImage)
 {
-	engine_render_entry_header *Header = (engine_render_entry_header *)Commands.CommandBufferBase;
-	mat4 *Temp = (mat4 *)(Commands.CommandBufferBase + Header->Offset);
-	
-	mat4 Model = ConvertToMatrix4x4(glm::rotate(glm::mat4(1.0f), 0.0f*glm::radians(45.0f), glm::vec3(0.0f, 0.0f, 1.0f)));
-	mat4 View = *Temp;
-	mat4 Proj = PerspectiveProjection(RadiansFromDegrees(45.0f), (f32)SwapChainExtent.width / (f32)SwapChainExtent.height, 0.01f, 100.0f);
-	mat4 MVP_Matrix = Proj * View * Model;
-	
-	UniformBufferObject Ubo = {};
-	Ubo.MVP_Final = MVP_Matrix;
-	
-	void *Data;
-	vkMapMemory(LogicDevice, UniformBuffersMemory[CurrentImage], 0, sizeof(Ubo), 0, &Data);
-	memcpy(Data, &Ubo, sizeof(Ubo));
+	engine_render_entry_header *Header = 0;
+	u32 offset = 0;
+	for(u32 index = 0;
+		index < Commands.CommandBufferElementCount;
+		index++)
+	{
+		Header = (engine_render_entry_header *)(Commands.CommandBufferBase + offset);
+		if(Header->Type == EngineRenderCommandType_ViewMatrix)
+		{
+			mat4 *Temp = (mat4 *)(Commands.CommandBufferBase + Header->Offsets[0]);
+			
+			mat4 Model = ConvertToMatrix4x4(glm::rotate(glm::mat4(1.0f), 0.0f*glm::radians(45.0f), glm::vec3(0.0f, 0.0f, 1.0f)));
+			mat4 View = *Temp;
+			mat4 Proj = PerspectiveProjection(RadiansFromDegrees(65.0f), (f32)SwapChainExtent.width / (f32)SwapChainExtent.height, 0.01f, 10.0f);
+			mat4 MVP_Matrix = Proj * View * Model;
+			
+			UniformBufferObject Ubo = {};
+			Ubo.MVP_Final = MVP_Matrix;
+			
+			void *Data;
+			vkMapMemory(LogicDevice, UniformBuffersMemory[CurrentImage], 0, sizeof(Ubo), 0, &Data);
+			memcpy(Data, &Ubo, sizeof(Ubo));
+			break;
+		}
+		offset += (Header->OffsetsCount > 1) ? (Header->Offsets[1] + Header->Sizes[1]) : Header->Offsets[0] + Header->Sizes[0];
+	}
 }
 
+internal void
+vk_update_ui_buffer(VkDevice LogicDevice, VkDeviceMemory *ui_vertices_memory, VkDeviceMemory *ui_indices_memory, engine_render_commands Commands)
+{
+	engine_render_entry_header *Header = 0;
+	u32 offset = 0;
+	for(u32 index = 0;
+		index < Commands.CommandBufferElementCount;
+		index++)
+	{
+		Header = (engine_render_entry_header *)(Commands.CommandBufferBase + offset);
+		if(Header->Type == EngineRenderCommandType_Rect)
+		{
+			vertex_3d *Vertices = (vertex_3d *)(Commands.CommandBufferBase + Header->Offsets[0]);
+			u32 *Indices = (u32 *)(Commands.CommandBufferBase + Header->Offsets[0] + Header->Sizes[0]);
+			
+			VkDeviceSize VertexBufferSize = Header->Sizes[0];
+			VkDeviceSize IndexBufferSize = Header->Sizes[1];
+			
+			void *Data;
+			vkMapMemory(LogicDevice, *ui_vertices_memory, 0, Header->Sizes[0], 0, &Data);
+			memcpy(Data, Vertices, Header->Sizes[0]);
+			
+			vkMapMemory(LogicDevice, *ui_indices_memory, 0, Header->Sizes[1], 0, &Data);
+			memcpy(Data, Indices, Header->Sizes[1]);
+		}
+		else if(Header->Type == EngineRenderCommandType_None)
+		{
+			break;
+		}
+		
+		offset += Header->Offsets[1] + Header->Sizes[1];
+	}
+}
 
 internal void
-CreateDescriptorPool(VkDevice LogicDevice, VkDescriptorPool *DescriptorPool)
+vk_CreateDescriptorPool(VkDevice LogicDevice, VkDescriptorPool *DescriptorPool)
 {
 	VkDescriptorPoolSize PoolSizes[2] = {{},{}};
 	PoolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -843,7 +978,7 @@ CreateDescriptorPool(VkDevice LogicDevice, VkDescriptorPool *DescriptorPool)
 }
 
 internal void
-CreateDescriptorSets(memory_chunk *TranArena, VkDevice LogicDevice, VkBuffer *UniformBuffers, VkDescriptorPool *DescriptorPool, VkDescriptorSet *DescriptorSets, VkDescriptorSetLayout DescriptorSetLayout, VkImageView TextureImageView, VkSampler TextureSampler)
+vk_CreateDescriptorSets(memory_chunk *TranArena, VkDevice LogicDevice, VkBuffer *UniformBuffers, VkDescriptorPool *DescriptorPool, VkDescriptorSet *DescriptorSets, VkDescriptorSetLayout DescriptorSetLayout, VkImageView TextureImageView, VkSampler TextureSampler)
 {
 	VkDescriptorSetLayout Layouts[MAX_FRAMES_IN_FLIGHT];
 	Layouts[0] = DescriptorSetLayout;
@@ -896,7 +1031,7 @@ CreateDescriptorSets(memory_chunk *TranArena, VkDevice LogicDevice, VkBuffer *Un
 }
 
 internal void
-CreateImage(VkPhysicalDevice PhysicalDevice,VkDevice LogicalDevice, u32 Width, u32 Height, u32 MipLevels, VkSampleCountFlagBits NumSamples, VkFormat Format, VkImageTiling Tiling, VkImageUsageFlags Usage, VkMemoryPropertyFlags Properties, VkImage *Image, VkDeviceMemory &ImageMemory)
+vk_CreateImage(VkPhysicalDevice PhysicalDevice,VkDevice LogicalDevice, u32 Width, u32 Height, u32 MipLevels, VkSampleCountFlagBits NumSamples, VkFormat Format, VkImageTiling Tiling, VkImageUsageFlags Usage, VkMemoryPropertyFlags Properties, VkImage *Image, VkDeviceMemory &ImageMemory)
 {
 	VkImageCreateInfo ImageInfo = {};
 	ImageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -904,11 +1039,11 @@ CreateImage(VkPhysicalDevice PhysicalDevice,VkDevice LogicalDevice, u32 Width, u
     ImageInfo.extent.width = Width;
     ImageInfo.extent.height = Height;
     ImageInfo.extent.depth = 1;
-    ImageInfo.mipLevels = MipLevels;
+    ImageInfo.mipLevels = (MipLevels == 0) ? 1 : MipLevels;
     ImageInfo.arrayLayers = 1;
     ImageInfo.format = Format;
     ImageInfo.tiling = Tiling;
-    ImageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    ImageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;//VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     ImageInfo.usage = Usage;
     ImageInfo.samples = NumSamples;
     ImageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -921,7 +1056,7 @@ CreateImage(VkPhysicalDevice PhysicalDevice,VkDevice LogicalDevice, u32 Width, u
 	VkMemoryAllocateInfo AllocInfo = {};
 	AllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
 	AllocInfo.allocationSize = MemoryRequirements.size;
-	AllocInfo.memoryTypeIndex = FindMemoryType(PhysicalDevice, MemoryRequirements.memoryTypeBits, Properties);
+	AllocInfo.memoryTypeIndex = vk_FindMemoryType(PhysicalDevice, MemoryRequirements.memoryTypeBits, Properties);
 	
 	b32 IsMemoryAllocated = false;
 	IsMemoryAllocated = (vkAllocateMemory(LogicalDevice, &AllocInfo, 0, &ImageMemory) == VK_SUCCESS);
@@ -931,14 +1066,14 @@ CreateImage(VkPhysicalDevice PhysicalDevice,VkDevice LogicalDevice, u32 Width, u
 }
 
 internal void
-GenerateMipmaps(VkPhysicalDevice PhysicalDevice, VkDevice LogicalDevice, VkCommandPool &CommandPool, VkQueue GraphicsQueue, VkImage Image, VkFormat ImageFormat, u32 TextureWidth, u32 TextureHeight, u32 MipLevels)
+vk_GenerateMipmaps(VkPhysicalDevice PhysicalDevice, VkDevice LogicalDevice, VkCommandPool &CommandPool, VkQueue GraphicsQueue, VkImage Image, VkFormat ImageFormat, u32 TextureWidth, u32 TextureHeight, u32 MipLevels)
 {
 	// NOTE(Denis): Check if image format supports linear blitting
 	VkFormatProperties FormatProperties = {};
 	vkGetPhysicalDeviceFormatProperties(PhysicalDevice, ImageFormat, &FormatProperties);
 	Assert((FormatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT));
 	
-	VkCommandBuffer CommandBuffer = BeginSingleTimeCommands(LogicalDevice, CommandPool);
+	VkCommandBuffer CommandBuffer = vk_BeginSingleTimeCommands(LogicalDevice, CommandPool);
 	VkImageMemoryBarrier Barrier = {};
 	Barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
 	Barrier.image = Image;
@@ -1015,11 +1150,11 @@ GenerateMipmaps(VkPhysicalDevice PhysicalDevice, VkDevice LogicalDevice, VkComma
 						 0, 0,
 						 1, &Barrier);
 	
-	EndSingleTimeCommands(CommandBuffer, CommandPool, GraphicsQueue, LogicalDevice);
+	vk_EndSingleTimeCommands(CommandBuffer, CommandPool, GraphicsQueue, LogicalDevice);
 }
 
 internal void 
-CreateTextureImage(VkImage *TextureImage, VkDeviceMemory *TextureImageMemory, VkPhysicalDevice PhysicalDevice, VkDevice LogicalDevice, VkCommandPool &CommandPool, VkQueue GraphicsQueue, VkBuffer *Buffer, VkDeviceMemory *BufferMemory, u32 &MipLevels)
+vk_CreateTextureImage(VkImage *TextureImage, VkDeviceMemory *TextureImageMemory, VkPhysicalDevice PhysicalDevice, VkDevice LogicalDevice, VkCommandPool &CommandPool, VkQueue GraphicsQueue, VkBuffer *Buffer, VkDeviceMemory *BufferMemory, u32 &MipLevels)
 {
 	s32 TextureWidth;
 	s32 TextureHeight;
@@ -1035,7 +1170,7 @@ CreateTextureImage(VkImage *TextureImage, VkDeviceMemory *TextureImageMemory, Vk
 	VkBuffer StagingBuffer = {};
 	VkDeviceMemory StagingBufferMemory = {};
 	
-	CreateBuffer(PhysicalDevice, LogicalDevice, ImageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &StagingBuffer, &StagingBufferMemory);
+	vk_CreateBuffer(PhysicalDevice, LogicalDevice, ImageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &StagingBuffer, &StagingBufferMemory);
 	
 	void *Data;
 	vkMapMemory(LogicalDevice, StagingBufferMemory, 0, ImageSize, 0, &Data);
@@ -1044,20 +1179,20 @@ CreateTextureImage(VkImage *TextureImage, VkDeviceMemory *TextureImageMemory, Vk
 	
 	stbi_image_free(Pixels);
 	
-	CreateImage(PhysicalDevice, LogicalDevice, TextureWidth, TextureHeight, MipLevels, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, TextureImage, *TextureImageMemory);
+	vk_CreateImage(PhysicalDevice, LogicalDevice, TextureWidth, TextureHeight, MipLevels, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, TextureImage, *TextureImageMemory);
 	
-	TransitionImageLayout(LogicalDevice, &CommandPool, GraphicsQueue, *TextureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, MipLevels);
+	vk_TransitionImageLayout(LogicalDevice, &CommandPool, GraphicsQueue, *TextureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, MipLevels);
 	
-	CopyBufferToImage(LogicalDevice, CommandPool, GraphicsQueue, StagingBuffer, *TextureImage, TextureWidth, TextureHeight);
+	vk_CopyBufferToImage(LogicalDevice, CommandPool, GraphicsQueue, StagingBuffer, *TextureImage, TextureWidth, TextureHeight);
 	
 	vkDestroyBuffer(LogicalDevice, StagingBuffer, 0);
 	vkFreeMemory(LogicalDevice, StagingBufferMemory, 0);
 	
-	GenerateMipmaps(PhysicalDevice, LogicalDevice, CommandPool, GraphicsQueue, *TextureImage, VK_FORMAT_R8G8B8A8_SRGB, TextureWidth, TextureHeight, MipLevels);
+	vk_GenerateMipmaps(PhysicalDevice, LogicalDevice, CommandPool, GraphicsQueue, *TextureImage, VK_FORMAT_R8G8B8A8_SRGB, TextureWidth, TextureHeight, MipLevels);
 }
 
 internal void
-CreateTextureSampler(VkPhysicalDevice PhysicalDevice, VkDevice LogicalDevice, VkSampler &TextureSampler, u32 MipLevels)
+vk_CreateTextureSampler(VkPhysicalDevice PhysicalDevice, VkDevice LogicalDevice, VkSampler &TextureSampler, u32 MipLevels)
 {
 	VkSamplerCreateInfo SamplerInfo = {};
 	SamplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -1082,14 +1217,8 @@ CreateTextureSampler(VkPhysicalDevice PhysicalDevice, VkDevice LogicalDevice, Vk
 	ShowVulkanResult(vkCreateSampler(LogicalDevice, &SamplerInfo, 0, &TextureSampler), "Texture sampler creation : %s");
 }
 
-inline void
-CreateTextureImageView(VkDevice LogicalDevice, VkImageView &TextureImageView, VkImage TextureImage, u32 MipLevels)
-{
-	TextureImageView = CreateImageView(LogicalDevice, TextureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT, MipLevels);
-}
-
 internal b32 
-IsDeviceSuitable(VkPhysicalDevice Device, VkPhysicalDeviceFeatures &DeviceFeatures)
+vk_IsDeviceSuitable(VkPhysicalDevice Device, VkPhysicalDeviceFeatures &DeviceFeatures)
 {
 	VkPhysicalDeviceProperties DeviceProperties;
 	DeviceFeatures.samplerAnisotropy = VK_TRUE;
@@ -1102,7 +1231,7 @@ IsDeviceSuitable(VkPhysicalDevice Device, VkPhysicalDeviceFeatures &DeviceFeatur
 }
 
 internal VkSampleCountFlagBits
-GetMaxUsableSampleCount(VkPhysicalDevice PhysicalDevice)
+vk_GetMaxUsableSampleCount(VkPhysicalDevice PhysicalDevice)
 {
 	VkPhysicalDeviceProperties PhysicalDeviceProperties;
 	vkGetPhysicalDeviceProperties(PhysicalDevice, &PhysicalDeviceProperties);
@@ -1120,7 +1249,7 @@ GetMaxUsableSampleCount(VkPhysicalDevice PhysicalDevice)
 }
 
 internal void
-PickPhysicalDevice(VkInstance Instance, VkPhysicalDevice &PhysicalDevice, VkPhysicalDeviceFeatures &DeviceFeatures, VkSampleCountFlagBits &MSAA_Samples)
+vk_PickPhysicalDevice(VkInstance Instance, VkPhysicalDevice &PhysicalDevice, VkPhysicalDeviceFeatures &DeviceFeatures, VkSampleCountFlagBits &MSAA_Samples)
 {
 	u32 DeviceCount = 0;
 	vkEnumeratePhysicalDevices(Instance, &DeviceCount, 0);
@@ -1139,10 +1268,10 @@ PickPhysicalDevice(VkInstance Instance, VkPhysicalDevice &PhysicalDevice, VkPhys
 		Index < DeviceCount;
 		++Index)
 	{
-		if(IsDeviceSuitable(Devices[Index], DeviceFeatures))
+		if(vk_IsDeviceSuitable(Devices[Index], DeviceFeatures))
 		{
 			PhysicalDevice = Devices[Index];
-			MSAA_Samples = GetMaxUsableSampleCount(PhysicalDevice);
+			MSAA_Samples = vk_GetMaxUsableSampleCount(PhysicalDevice);
 			break;
 		}
 	}
@@ -1154,30 +1283,30 @@ PickPhysicalDevice(VkInstance Instance, VkPhysicalDevice &PhysicalDevice, VkPhys
 }
 
 internal void
-CreateColorResources(VkPhysicalDevice PhysicalDevice, VkDevice LogicalDevice, VkCommandPool *CommandPool, VkQueue GraphicsQueue, VkExtent2D SwapChainExtent, VkImage *Image, VkDeviceMemory *ImageMemory, VkImageView *ColorImageView, VkFormat SwapChainImageFormat, u32 MipLevels, VkSampleCountFlagBits MSAA_Samples)
+vk_CreateColorResources(VkPhysicalDevice PhysicalDevice, VkDevice LogicalDevice, VkCommandPool *CommandPool, VkQueue GraphicsQueue, VkExtent2D SwapChainExtent, VkImage *Image, VkDeviceMemory *ImageMemory, VkImageView *ColorImageView, VkFormat SwapChainImageFormat, u32 MipLevels, VkSampleCountFlagBits MSAA_Samples)
 {
 	VkFormat ColorFormat = SwapChainImageFormat;
 	
-	CreateImage(PhysicalDevice, LogicalDevice, SwapChainExtent.width, SwapChainExtent.height, MipLevels, MSAA_Samples, ColorFormat, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, Image, *ImageMemory);
+	vk_CreateImage(PhysicalDevice, LogicalDevice, SwapChainExtent.width, SwapChainExtent.height, MipLevels, MSAA_Samples, ColorFormat, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, Image, *ImageMemory);
 	
-	*ColorImageView = CreateImageView(LogicalDevice, *Image, ColorFormat, VK_IMAGE_ASPECT_COLOR_BIT, 1);
+	*ColorImageView = vk_CreateImageView(LogicalDevice, *Image, ColorFormat, VK_IMAGE_ASPECT_COLOR_BIT, 1);
 }
 
 internal void
-CreateDepthResources(VkPhysicalDevice PhysicalDevice, VkDevice LogicalDevice, VkCommandPool *CommandPool, VkQueue GraphicsQueue, VkExtent2D SwapChainExtent, VkImage *Image, VkDeviceMemory *ImageMemory, VkImageView *DepthImageView, VkSampleCountFlagBits MSAA_Samples)
+vk_CreateDepthResources(VkPhysicalDevice PhysicalDevice, VkDevice LogicalDevice, VkCommandPool *CommandPool, VkQueue GraphicsQueue, VkExtent2D SwapChainExtent, VkImage *Image, VkDeviceMemory *ImageMemory, VkImageView *DepthImageView, VkSampleCountFlagBits MSAA_Samples)
 {
-	VkFormat DepthFormat = FindDepthFormat(PhysicalDevice);
+	VkFormat DepthFormat = vk_FindDepthFormat(PhysicalDevice);
 	
-	CreateImage(PhysicalDevice, LogicalDevice, SwapChainExtent.width, SwapChainExtent.height, 1, MSAA_Samples, DepthFormat, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, Image, *ImageMemory);
+	vk_CreateImage(PhysicalDevice, LogicalDevice, SwapChainExtent.width, SwapChainExtent.height, 1, MSAA_Samples, DepthFormat, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, Image, *ImageMemory);
 	
-	*DepthImageView = CreateImageView(LogicalDevice, *Image, DepthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
+	*DepthImageView = vk_CreateImageView(LogicalDevice, *Image, DepthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
 	
-	TransitionImageLayout(LogicalDevice, CommandPool, GraphicsQueue, *Image, DepthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
+	vk_TransitionImageLayout(LogicalDevice, CommandPool, GraphicsQueue, *Image, DepthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
 	
 }
 
 internal VkShaderModule
-VkCreateShaderModule(VkDevice vk_logical_device, char *code, size_t code_size)
+vk_CreateShaderModule(VkDevice vk_logical_device, char *code, size_t code_size)
 {
 	VkShaderModuleCreateInfo ShaderModuleInfo = {};
 	ShaderModuleInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
@@ -1191,7 +1320,7 @@ VkCreateShaderModule(VkDevice vk_logical_device, char *code, size_t code_size)
 }
 
 internal VkPipeline
-VkCreatePipeline(VkDevice logical_device, VkRenderPass renderPass, VkExtent2D SwapChainExtent, VkSampleCountFlagBits MSAA_Samples, VkPipelineLayout *pipelineLayout, VkDescriptorSetLayout *DescriptorSetLayout)
+vk_CreatePipeline(VkDevice logical_device, VkRenderPass renderPass, VkExtent2D SwapChainExtent, VkSampleCountFlagBits MSAA_Samples, VkPipelineLayout *pipelineLayout, VkDescriptorSetLayout *DescriptorSetLayout, b32 ui_used)
 {
 	VkPipeline Result = {};
 	
@@ -1201,14 +1330,26 @@ VkCreatePipeline(VkDevice logical_device, VkRenderPass renderPass, VkExtent2D Sw
 	
 	// Shader Model Info Creation
 	// Shader Module
-	read_file_result VertexFile = PlatformReadEntireFile("shaders/vert.spv");
-	read_file_result FragmentFile = PlatformReadEntireFile("shaders/frag.spv");
+	// World shader
+	read_file_result VertexFile = {};
+	read_file_result FragmentFile = {};
+	
+	if(ui_used)
+	{
+		VertexFile = PlatformReadEntireFile("shaders/ui_vert.spv");
+		FragmentFile = PlatformReadEntireFile("shaders/ui_frag.spv");
+	}
+	else
+	{
+		VertexFile = PlatformReadEntireFile("shaders/simple_shader_vert.spv");
+		FragmentFile = PlatformReadEntireFile("shaders/simple_shader_frag.spv");
+	}
 	
 	char *VertShaderCode = (char *)VertexFile.Contents;
 	char *FragShaderCode = (char *)FragmentFile.Contents;
 	
-	VkShaderModule VertShaderModule = VkCreateShaderModule(logical_device, VertShaderCode, VertexFile.ContentsSize);
-	VkShaderModule FragShaderModule = VkCreateShaderModule(logical_device, FragShaderCode, FragmentFile.ContentsSize);
+	VkShaderModule VertShaderModule = vk_CreateShaderModule(logical_device, VertShaderCode, VertexFile.ContentsSize);
+	VkShaderModule FragShaderModule = vk_CreateShaderModule(logical_device, FragShaderCode, FragmentFile.ContentsSize);
 	// End of Shader Module
 	
 	// Shader Stage Creation
@@ -1244,23 +1385,23 @@ VkCreatePipeline(VkDevice logical_device, VkRenderPass renderPass, VkExtent2D Sw
 	AttributeDescriptions[0].binding = 0;
 	AttributeDescriptions[0].location = 0;
 	AttributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-	AttributeDescriptions[0].offset = offsetof(vertex, Pos);
+	AttributeDescriptions[0].offset = offsetof(vertex_3d, Pos);
 	
 	AttributeDescriptions[1].binding = 0;
 	AttributeDescriptions[1].location = 1;
 	AttributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-	AttributeDescriptions[1].offset = offsetof(vertex, Color);
+	AttributeDescriptions[1].offset = offsetof(vertex_3d, Color);
 	
 	AttributeDescriptions[2].binding = 0;
 	AttributeDescriptions[2].location = 2;
 	AttributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
-	AttributeDescriptions[2].offset = offsetof(vertex, TexCoord);
+	AttributeDescriptions[2].offset = offsetof(vertex_3d, TexCoord);
 	// End of Vertex Input Descriptions
 	
 	//Vertex Binding Descriptions
 	VkVertexInputBindingDescription BindingDescription = {};
 	BindingDescription.binding = 0; // Remember, this binding index we use in the shader
-	BindingDescription.stride = sizeof(vertex); // Offset for the next vertex data e.g(Position + TexCoord + Color)
+	BindingDescription.stride = sizeof(vertex_3d); // Offset for the next vertex data e.g(Position + TexCoord + Color)
 	BindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 	//End of Vertex Binding Descriptions
 	
@@ -1306,7 +1447,7 @@ VkCreatePipeline(VkDevice logical_device, VkRenderPass renderPass, VkExtent2D Sw
 	Rasterizer.rasterizerDiscardEnable = VK_FALSE;
 	Rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
 	Rasterizer.lineWidth = 1.0f;
-	Rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+	Rasterizer.cullMode = ui_used ? VK_CULL_MODE_NONE : VK_CULL_MODE_BACK_BIT;
 	Rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	
 	Rasterizer.depthBiasEnable = VK_FALSE;
@@ -1330,7 +1471,7 @@ VkCreatePipeline(VkDevice logical_device, VkRenderPass renderPass, VkExtent2D Sw
 	VkPipelineColorBlendAttachmentState ColorBlendAttachment = {};
 	ColorBlendAttachment.colorWriteMask = (VK_COLOR_COMPONENT_R_BIT| VK_COLOR_COMPONENT_G_BIT|
 										   VK_COLOR_COMPONENT_B_BIT| VK_COLOR_COMPONENT_A_BIT);
-	ColorBlendAttachment.blendEnable = VK_TRUE;
+	ColorBlendAttachment.blendEnable = ui_used ? VK_FALSE : VK_TRUE;
 	ColorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
 	ColorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
 	ColorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
@@ -1351,7 +1492,7 @@ VkCreatePipeline(VkDevice logical_device, VkRenderPass renderPass, VkExtent2D Sw
 	// End of Color blending
 	
 	// Create Descriptor Set For Matrices
-	CreateDescriptorSetLayout(logical_device, DescriptorSetLayout);
+	vk_CreateDescriptorSetLayout(logical_device, DescriptorSetLayout);
 	// End of Crearte Descriptor Set For Matrices
 	
 	// Pipeline Layout
@@ -1367,16 +1508,20 @@ VkCreatePipeline(VkDevice logical_device, VkRenderPass renderPass, VkExtent2D Sw
 	// Depth stencil pipeline info
 	VkPipelineDepthStencilStateCreateInfo DepthStencilPipelineInfo = {};
 	DepthStencilPipelineInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-	DepthStencilPipelineInfo.depthTestEnable = VK_TRUE;
-	DepthStencilPipelineInfo.depthWriteEnable = VK_TRUE;
-	DepthStencilPipelineInfo.depthCompareOp = VK_COMPARE_OP_LESS;
-	DepthStencilPipelineInfo.depthBoundsTestEnable = VK_FALSE;
-	DepthStencilPipelineInfo.minDepthBounds = 0.0f;
-	DepthStencilPipelineInfo.maxDepthBounds = 1.0f;
-	DepthStencilPipelineInfo.stencilTestEnable = VK_FALSE;
-	DepthStencilPipelineInfo.front = {};
-	DepthStencilPipelineInfo.back = {};
-	// End of Depth stencil pipeline info
+	
+	if(!ui_used)
+	{
+		DepthStencilPipelineInfo.depthTestEnable = VK_TRUE;
+		DepthStencilPipelineInfo.depthWriteEnable = VK_TRUE;
+		DepthStencilPipelineInfo.depthCompareOp = VK_COMPARE_OP_LESS;
+		DepthStencilPipelineInfo.depthBoundsTestEnable = VK_FALSE;
+		DepthStencilPipelineInfo.minDepthBounds = 0.0f;
+		DepthStencilPipelineInfo.maxDepthBounds = 1.0f;
+		DepthStencilPipelineInfo.stencilTestEnable = VK_FALSE;
+		DepthStencilPipelineInfo.front = {};
+		DepthStencilPipelineInfo.back = {};
+		// End of Depth stencil pipeline info
+	}
 	
 	// Graphics Pipeline Create Info
 	VkGraphicsPipelineCreateInfo PipelineInfo = {};
@@ -1388,7 +1533,7 @@ VkCreatePipeline(VkDevice logical_device, VkRenderPass renderPass, VkExtent2D Sw
 	PipelineInfo.pViewportState = &ViewportStateInfo;
 	PipelineInfo.pRasterizationState = &Rasterizer;
 	PipelineInfo.pMultisampleState = &MultisamplingInfo;
-	PipelineInfo.pDepthStencilState = &DepthStencilPipelineInfo;
+	PipelineInfo.pDepthStencilState = ui_used ? 0 : &DepthStencilPipelineInfo;
 	PipelineInfo.pColorBlendState = &ColorBlendingInfo;
 	PipelineInfo.pDynamicState = &DynamicState;
 	PipelineInfo.layout = *pipelineLayout;

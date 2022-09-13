@@ -1,10 +1,13 @@
 //----------------------------------------------------------------
 // Styr Engine -- author: Denis Hoida | 2022
 //----------------------------------------------------------------
-// NOTE(Denis): Win32 platform specific includes
+
+// NOTE(Denis): Win32 specific includes
 #include <windows.h>
 #include <stdio.h>
 #include <chrono>
+//#include <thread>
+//#include <threads.h>
 
 // NOTE(Denis): OpenGL open math library, in future will be replaced by our own library
 #define GLM_FORCE_RADIANS
@@ -13,13 +16,12 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 // NOTE(Denis): Image and File Importers
-#define TINYOBJLOADER_IMPLEMENTATION
-#include "tiny_obj_loader.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
 #include "styr_platform.h"
-#include "dengine_shared.h"
+#include "styr_obj_importer.h"
+#include "styr_shared.h"
 #include "win32_styr.h"
 
 // TODO(Denis): Get rid of the global variables!!!
@@ -27,6 +29,7 @@
 global_variable b32 FirstStart = true;
 global_variable f32 MouseDeltaX;
 global_variable f32 MouseDeltaY;
+global_variable f32 MouseWheelDelta;
 global_variable f32 MouseOldPx;
 global_variable f32 MouseOldPy;
 
@@ -36,13 +39,13 @@ global_variable win32_offscreen_buffer GlobalBackbuffer;
 global_variable s64 GlobalPerfCountFrequency;
 global_variable WINDOWPLACEMENT GlobalWindowPosition =  {sizeof(GlobalWindowPosition)};
 global_variable const s32 MAX_FRAMES_IN_FLIGHT = 2;
-global_variable b32 FramebufferResized = false;
+global_variable b32 GlobalFramebufferResized = false;
 global_variable HWND GlobalWindowHandle;
 
-global_variable char *MODEL_PATH = "../data/models/landcruiser.obj";
-global_variable char *TEXTURE_PATH = "../data/textures/landcruiser_d.png";
+global_variable char *MODEL_PATH = "../data/models/viking_room.obj";
+global_variable char *TEXTURE_PATH = "../data/textures/viking_room.png";
 
-#include "styr.cpp"
+#include "styr_engine.cpp"
 #include "styr_vulkan.cpp"
 
 PLATFORM_ALLOCATE_MEMORY(Win32AllocateMemory)
@@ -245,6 +248,12 @@ Win32MainWindowCallback(HWND Window,
 			}
 		} break;
 #endif
+		case WM_MOUSEWHEEL:
+		{
+			MouseWheelDelta = GET_WHEEL_DELTA_WPARAM(WParam) / (120.0f * 500.0f);
+			printf("Mouse wheel delta: %f\n", MouseWheelDelta);
+		} break;
+		
 		case WM_PAINT:
 		{
 			PAINTSTRUCT Paint;
@@ -253,7 +262,7 @@ Win32MainWindowCallback(HWND Window,
 		
 		case WM_SIZE:
 		{
-			FramebufferResized = true;
+			GlobalFramebufferResized = true;
 		} break;
 		
 		default:
@@ -341,7 +350,7 @@ struct HashVertex
 
 // TODO(Denis): Write better hash function
 inline u32 
-CreateHashValue(vertex Vert)
+CreateHashValue(vertex_3d Vert)
 {
 	u32 Result = 0;
 	char Buffer[64];
@@ -420,166 +429,144 @@ FindUniqueVerticesCount(HashVertex *HashVertices, u32 HashVerticesCount)
 }
 
 internal b32
-LoadObj(char *Filepath, win32_styr_array *OutVertices, win32_styr_array *OutUVs, win32_styr_array *OutNormals, win32_styr_array *OutIndices,  memory_chunk *TranArena)
+LoadObjOptimized(char* Filepath, win32_styr_array* OutVertices, win32_styr_array* OutUVs, win32_styr_array* OutNormals, win32_styr_array* OutIndices, memory_chunk* TranArena)
 {
-	// NOTE(Denis): Load obj file and process it. Optimizes the repeated vertex by adding it to new array.
-	tinyobj::attrib_t Attrib;
-    std::vector<tinyobj::shape_t> Shapes;
-    std::vector<tinyobj::material_t> Materials;
-    std::string warn, err;
+	ObjectData Data = CreateTheObject(Filepath);
+	retval vertexdata = GetVertexArray(Data.ObjectData, 0);
+	retval texturedata = GetTextureArray(Data.ObjectData, 0);
 	
-    if (!tinyobj::LoadObj(&Attrib, &Shapes, &Materials, &warn, &err, MODEL_PATH)) {
-        throw std::runtime_error(warn + err);
-    }
-	
-	// NOTE(Denis): How many indices in file
-	u32 VertexIndicesCount = 0;
-	for(u32 ShapeIndex = 0;
-		ShapeIndex < Shapes.size();
-		++ShapeIndex)
-	{
-		for(u32 Index = 0;
-			Index < Shapes[ShapeIndex].mesh.indices.size();
-			++Index)
-		{
-			++VertexIndicesCount;
-		}
-	}
-	
-	InitializeArray(OutIndices, TranArena, VertexIndicesCount, u32);
-	
-#if STYR_LOAD_MODEL_OPTIMIZED
 	chunk_temporary_memory TempMemory = BeginTemporaryMemory(TranArena);
 	
-	InitializeArray(OutVertices, TranArena, VertexIndicesCount, vertex);
+	u32 VertexIndicesCount = vertexdata.count_o_vals / 3;
+	
+	initialize_array(*OutVertices, TranArena, (vertexdata.count_o_vals / 3), vertex_3d);
+	initialize_array(*OutIndices, TranArena, (vertexdata.count_o_vals / 3), u32);
 	
 	// NOTE(Denis): Hash all the values from vertices array into hashes array
-	HashVertex *Hashes = (HashVertex *)PushArray(TranArena, VertexIndicesCount, HashVertex);
+	HashVertex* Hashes = (HashVertex*)PushArray(TranArena, VertexIndicesCount, HashVertex);
 	
 	VertexIndicesCount = 0;
-	for(u32 ShapeIndex = 0;
-		ShapeIndex < Shapes.size();
-		++ShapeIndex)
+	
+	vertex_3d* Vertices = (vertex_3d*)OutVertices->Data;
+	u32* Indices = (u32*)OutIndices->Data;
+	
+	u32 TexCoordIndex = 0;
+	for (int i = 0; i < vertexdata.count_o_vals / 3; i++) 
 	{
-		for(u32 Index = 0;
-			Index < Shapes[ShapeIndex].mesh.indices.size();
-			++Index)
+		vertex_3d Vert = {};
+		Vert.Pos =
 		{
-			vertex Vert = {};
+			vertexdata.values[3 * i + 0],
+			vertexdata.values[3 * i + 1],
+			vertexdata.values[3 * i + 2]
+		};
+		
+		Vert.TexCoord =
+		{
+			texturedata.values[2 * TexCoordIndex + 0],
+			1.0f - texturedata.values[2 * TexCoordIndex + 1]
+		};
+		
+		Vert.Color = { 1.0f, 1.0f, 1.0f };
+		
+		Hashes[VertexIndicesCount].HashValue = CreateHashValue(Vert);
+		++VertexIndicesCount;
+		++TexCoordIndex;
+	}
+	
+	TexCoordIndex = 0;
+	u32 VerticesCount = VertexIndicesCount;
+	u32 UniqueIndex = 0;
+	u32 VertexIndex = 0;
+	
+	for (int i = 0; i < vertexdata.count_o_vals / 3; i++) 
+	{
+		vertex_3d Vert = {};
+		{
 			Vert.Pos =
 			{
-				Attrib.vertices[3 * Shapes[ShapeIndex].mesh.indices[Index].vertex_index + 0],
-				Attrib.vertices[3 * Shapes[ShapeIndex].mesh.indices[Index].vertex_index + 1],
-				Attrib.vertices[3 * Shapes[ShapeIndex].mesh.indices[Index].vertex_index + 2]
+				vertexdata.values[3 * i + 0],
+				vertexdata.values[3 * i + 1],
+				vertexdata.values[3 * i + 2]
 			};
 			
 			Vert.TexCoord =
 			{
-				Attrib.texcoords[2 * Shapes[ShapeIndex].mesh.indices[Index].texcoord_index + 0],
-				1.0f - Attrib.texcoords[2 * Shapes[ShapeIndex].mesh.indices[Index].texcoord_index + 1]
+				texturedata.values[2 * TexCoordIndex + 0],
+				1.0f - texturedata.values[2 * TexCoordIndex + 1]
 			};
 			
-			Vert.Color = {1.0f, 1.0f, 1.0f};
-			
-			Hashes[VertexIndicesCount].HashValue = CreateHashValue(Vert);
-			++VertexIndicesCount;
+			Vert.Color = { 1.0f, 1.0f, 1.0f };
 		}
-	}
-	
-	vertex *Vertices = (vertex *)OutVertices->Data;
-	u32 *Indices = (u32 *)OutIndices->Data;
-	
-	u32 VerticesCount = VertexIndicesCount;
-	u32 UniqueIndex = 0;
-	u32 VertexIndex = 0;
-	for(u32 ShapeIndex = 0;
-		ShapeIndex < Shapes.size();
-		++ShapeIndex)
-	{
-		for(u32 Index = 0;
-			Index < Shapes[ShapeIndex].mesh.indices.size();
-			++Index)
+		
+		u32 HashValue = CreateHashValue(Vert);
+		u32 HashValueIndex = FindVertexByHash(HashValue, Hashes, VertexIndicesCount);
+		u32 HashValueVertexCount = Hashes[HashValueIndex].Count;
+		
+		if (HashValueVertexCount == 0)
 		{
-			vertex Vert = {};
-			{
-				Vert.Pos =
-				{
-					Attrib.vertices[3 * Shapes[ShapeIndex].mesh.indices[Index].vertex_index + 0],
-					Attrib.vertices[3 * Shapes[ShapeIndex].mesh.indices[Index].vertex_index + 1],
-					Attrib.vertices[3 * Shapes[ShapeIndex].mesh.indices[Index].vertex_index + 2]
-				};
-				
-				Vert.TexCoord =
-				{
-					Attrib.texcoords[2 * Shapes[ShapeIndex].mesh.indices[Index].texcoord_index + 0],
-					1.0f - Attrib.texcoords[2 * Shapes[ShapeIndex].mesh.indices[Index].texcoord_index + 1]
-				};
-				
-				Vert.Color = {1.0f, 1.0f, 1.0f};
-			}
-			
-			u32 HashValue = CreateHashValue(Vert);
-			u32 HashValueIndex = FindVertexByHash(HashValue, Hashes, VertexIndicesCount);
-			u32 HashValueVertexCount = Hashes[HashValueIndex].Count;
-			
-			
-			if(HashValueVertexCount == 0)
-			{
-				++Hashes[HashValueIndex].Count;
-				Hashes[HashValueIndex].Index = UniqueIndex;
-				PushArrayElement(OutVertices, Vert, vertex);
-				++UniqueIndex;
-			}
-			
-			PushArrayElement(OutIndices, Hashes[HashValueIndex].Index, u32);
-			++VertexIndex;
+			push_array_element_at_index(OutVertices, UniqueIndex, Vert, vertex_3d);
+			Hashes[HashValueIndex].Index = UniqueIndex;
+			++Hashes[HashValueIndex].Count;
+			++UniqueIndex;
 		}
+		
+		Indices[VertexIndex] = Hashes[HashValueIndex].Index;
+		++VertexIndex;
+		++TexCoordIndex;
 	}
 	
 	EndTemporaryMemory(TempMemory);
 	
-	vertex *ActualVerticesInUse = PushArray(TranArena, UniqueIndex, vertex, AlignNoClear(4));
+	vertex_3d* ActualVerticesInUse = PushArray(TranArena, UniqueIndex, vertex_3d, AlignNoClear(4));
 	OutVertices->Count = UniqueIndex;
 	OutVertices->Data = ActualVerticesInUse;
-#else
-	InitializeArray(OutVertices, TranArena, VertexIndicesCount, vertex);
 	
-	vertex *Vertices = (vertex *)OutVertices->Data;
-	u32 *Indices = (u32 *)OutIndices->Data;
+	return true;
+}
+
+internal b32
+LoadObjNonOptimized(char* Filepath, win32_styr_array* OutVertices, win32_styr_array* OutUVs, win32_styr_array* OutNormals, win32_styr_array* OutIndices, memory_chunk* TranArena)
+{
+	ObjectData Data = CreateTheObject(Filepath);
+	retval vertexdata = GetVertexArray(Data.ObjectData, 0);
+	retval texturedata = GetTextureArray(Data.ObjectData, 0);
+	
+	initialize_array(*OutVertices, TranArena, (vertexdata.count_o_vals / 3), vertex_3d);
+	initialize_array(*OutIndices, TranArena, (vertexdata.count_o_vals / 3), u32);
+	
+	vertex_3d* Vertices = get_array_pointer(*OutVertices, vertex_3d);
+	u32* Indices = get_array_pointer(*OutIndices , u32);
 	
 	u32 VertexIndex = 0;
-	for(u32 ShapeIndex = 0;
-		ShapeIndex < Shapes.size();
-		++ShapeIndex)
-	{
-		for(u32 Index = 0;
-			Index < Shapes[ShapeIndex].mesh.indices.size();
-			++Index)
+	for (int i = 0; i < vertexdata.count_o_vals; i += 3) {
+		vertex_3d Vert = {};
 		{
-			vertex Vert = {};
+			Vert.Pos =
 			{
-				Vert.Pos =
-				{
-					Attrib.vertices[3 * Shapes[ShapeIndex].mesh.indices[Index].vertex_index + 0],
-					Attrib.vertices[3 * Shapes[ShapeIndex].mesh.indices[Index].vertex_index + 1],
-					Attrib.vertices[3 * Shapes[ShapeIndex].mesh.indices[Index].vertex_index + 2]
-				};
-				
-				Vert.TexCoord =
-				{
-					Attrib.texcoords[2 * Shapes[ShapeIndex].mesh.indices[Index].texcoord_index + 0],
-					1.0f - Attrib.texcoords[2 * Shapes[ShapeIndex].mesh.indices[Index].texcoord_index + 1]
-				};
-				
-				Vert.Color = {1.0f, 1.0f, 1.0f};
-			}
+				vertexdata.values[i],
+				vertexdata.values[i + 1],
+				vertexdata.values[i + 2]
+			};
 			
-			Vertices[VertexIndex] = Vert;
-			Indices[VertexIndex] = VertexIndex;
-			++VertexIndex;
+			Vert.Color = { 1.0f, 1.0f, 1.0f };
 		}
+		Vertices[VertexIndex] = Vert;
+		++VertexIndex;
 	}
-#endif
+	
+	VertexIndex = 0;
+	for (int i = 0;i < vertexdata.count_o_vals / 3;i++) {
+		Indices[VertexIndex] = VertexIndex;
+		++VertexIndex;
+	}
+	
+	for (int i = 0, j = 0; i < texturedata.count_o_vals;i += 2, j++) {
+		Vertices[j].TexCoord = {
+			texturedata.values[i],
+			1.0f-texturedata.values[i+1]
+		};
+	}
 	
 	return true;
 }
@@ -593,7 +580,12 @@ LoadModel(win32_styr_array *OutVerts, win32_styr_array *OutIndices, memory_chunk
 	win32_styr_array Normals = {};
 	win32_styr_array UVs = {};
 	
-	LoadObj(MODEL_PATH, OutVerts, &UVs, &Normals, OutIndices, TranArena);
+#if STYR_LOAD_MODEL_OPTIMIZED
+	LoadObjOptimized(MODEL_PATH, OutVerts, &UVs, &Normals, OutIndices, TranArena);
+#else
+	LoadObjNonOptimized(MODEL_PATH, OutVerts, &UVs, &Normals, OutIndices, TranArena);
+#endif
+	
 }
 
 int WinMain(HINSTANCE Instance,
@@ -748,18 +740,23 @@ int WinMain(HINSTANCE Instance,
 			
 			VkInstance VulkanInstance = 0;
 			
+			vulkan_context vk_context = {};
+			vulkan_device vk_device = {};
+			
 			u32 ImageCount = 0;
 			u32 CurrentFrame = 0;
 			VkQueue PresentQueue = {};
 			VkSwapchainKHR SwapChain = {};
 			VkExtent2D SwapChainExtent = {};
 			VkFormat SwapChainImageFormat = {};
-			VkPipelineLayout PipelineLayout = {};
+			VkPipelineLayout world_pipeline_layout = {};
+			VkPipelineLayout ui_pipeline_layout = {};
 			VkDescriptorSetLayout DescriptorSetLayout = {};
 			VkDescriptorPool DescriptorPool = {};
 			
 			VkImage SwapChainImages[3];
-			VkFramebuffer SwapChainFramebuffers[3];
+			VkFramebuffer world_framebuffers[3];
+			VkFramebuffer swap_chain_framebuffers[3];
 			VkDescriptorSet *DescriptorSets = 0;
 			VkBuffer *UniformBuffers = 0;
 			VkDeviceMemory *UniformBuffersMemory = 0;
@@ -817,39 +814,10 @@ int WinMain(HINSTANCE Instance,
 			
 			ShowVulkanResult(vkCreateInstance(&CreateInfo, 0, &VulkanInstance),"Instance created %s");
 			
-#if 0
-			//Get VULKAN extensions count
-			u32 ExtensionCount = 0;
-			vkEnumerateInstanceExtensionProperties(0, &ExtensionCount, 0);
-			
-			VkExtensionProperties *ExtensionProperties = (VkExtensionProperties *)PushArray(TranArena, ExtensionCount, VkExtensionProperties);
-			
-			//Get avialable VULKAN Extensions
-			vkEnumerateInstanceExtensionProperties(0, &ExtensionCount, ExtensionProperties);
-			
-			// Get avilable VULKAN Layers
-			VkLayerProperties SupportedLayers[20];
-			u32 SupportedLayersCount = 0;
-			vkEnumerateInstanceLayerProperties(&SupportedLayersCount, 0);
-			vkEnumerateInstanceLayerProperties(&SupportedLayersCount, SupportedLayers);
-			
-			OutputDebugStringA("Available Layers: ");
-			_snprintf_s(TextBuffer,sizeof(TextBuffer),"%d\n",SupportedLayersCount);
-			OutputDebugStringA(TextBuffer);
-			
-			for(u32 Index = 0;
-				Index < SupportedLayersCount;
-				++Index)
-			{
-				char TextBuffer[256];
-				_snprintf_s(TextBuffer,sizeof(TextBuffer),"%s\n",SupportedLayers[Index]);
-				OutputDebugStringA(TextBuffer);
-			}
-#endif
 			// NOTE(Denis): Selecting Physical Device
 			VkPhysicalDevice PhysicalDevice = VK_NULL_HANDLE;
 			VkPhysicalDeviceFeatures DeviceFeatures = {};
-			PickPhysicalDevice(VulkanInstance, PhysicalDevice, DeviceFeatures, MSAA_Samples);
+			vk_PickPhysicalDevice(VulkanInstance, PhysicalDevice, DeviceFeatures, MSAA_Samples);
 			DeviceFeatures.sampleRateShading = VK_TRUE;
 			
 			// NOTE(Denis): Queue Families - Initialize QUEUE
@@ -906,24 +874,26 @@ int WinMain(HINSTANCE Instance,
 			
 			ShowVulkanResult(vkCreateWin32SurfaceKHR(VulkanInstance, &CreateSurfaceInfo, 0, &VulkanWindowSurface), "Surface created: %s");
 			
-			CreateSwapChain(QueueFamilyCount, QueueFamilies, PhysicalDevice, VulkanWindowSurface, QueueIndices, QueuePriority,
-							CreateDeviceInfo, LogicalDevice, SwapChainImageFormat, SwapChain, SwapChainExtent, PresentQueue,
-							SwapChainImages, ImageCount);
+			vk_CreateSwapChain(QueueFamilyCount, QueueFamilies, PhysicalDevice, VulkanWindowSurface, QueueIndices, QueuePriority,
+							   CreateDeviceInfo, LogicalDevice, SwapChainImageFormat, SwapChain, SwapChainExtent, PresentQueue,
+							   SwapChainImages, ImageCount);
 			
 			// CHAIN IMAGES HERE!!!
 			VkImageView SwapChainImageViews[3];
-			CreateImageViews(SwapChainImageViews, SwapChainImages, SwapChainImageFormat, LogicalDevice, ImageCount);
+			vk_CreateImageViews(SwapChainImageViews, SwapChainImages, SwapChainImageFormat, LogicalDevice, ImageCount);
+			
 			// Render passes
 			//
 			//
+			VkRenderPass WorldRenderPass = vk_CreateRenderPass_world(PhysicalDevice, LogicalDevice, SwapChainImageFormat, MSAA_Samples);
+			VkRenderPass UIRenderPass = vk_CreateRenderPass_ui(PhysicalDevice, LogicalDevice, SwapChainImageFormat, MSAA_Samples);
 			
-			VkRenderPass WorldRenderPass = CreateRenderPass(PhysicalDevice, LogicalDevice, SwapChainImageFormat, MSAA_Samples, false);
+			VkCommandBuffer CommandBuffersWorld[MAX_FRAMES_IN_FLIGHT];
+			VkCommandBuffer CommandBuffersUI[MAX_FRAMES_IN_FLIGHT];
 			
-			VkCommandBuffer CommandBuffers[MAX_FRAMES_IN_FLIGHT];
+			VkPipeline WorldPipeline = vk_CreatePipeline(LogicalDevice, WorldRenderPass, SwapChainExtent,MSAA_Samples, &world_pipeline_layout, &DescriptorSetLayout, false);
 			
-			VkPipeline GraphicsPipeline = VkCreatePipeline(LogicalDevice, WorldRenderPass, SwapChainExtent, MSAA_Samples, &PipelineLayout, &DescriptorSetLayout);
-			
-			// End of Subpasses and attachments references
+			VkPipeline UIPipeline = vk_CreatePipeline(LogicalDevice, UIRenderPass, SwapChainExtent, MSAA_Samples, &ui_pipeline_layout, &DescriptorSetLayout, true);
 			//
 			//
 			// End of Render Pases
@@ -942,93 +912,89 @@ int WinMain(HINSTANCE Instance,
 			ShowVulkanResult(vkCreateCommandPool(LogicalDevice, &PoolInfo, 0, &CommandPool), "Command Pool Created : %s");
 			// End of Command pools
 			
-			CreateColorResources(PhysicalDevice, LogicalDevice, &CommandPool, GraphicQueue, SwapChainExtent, &ColorImage, &ColorImageMemory, &ColorImageView, SwapChainImageFormat, MipLevels, MSAA_Samples);
+			vk_CreateColorResources(PhysicalDevice, LogicalDevice, &CommandPool, GraphicQueue, SwapChainExtent, &ColorImage, &ColorImageMemory, &ColorImageView, SwapChainImageFormat, MipLevels, MSAA_Samples);
 			
-			CreateDepthResources(PhysicalDevice, LogicalDevice, &CommandPool, GraphicQueue, SwapChainExtent, &TextureImage, &TextureImageMemory, &DepthImageView, MSAA_Samples);
+			vk_CreateDepthResources(PhysicalDevice, LogicalDevice, &CommandPool, GraphicQueue, SwapChainExtent, &TextureImage, &TextureImageMemory, &DepthImageView, MSAA_Samples);
 			
-			CreateFramebuffers(SwapChainImageViews, ArrayCount(SwapChainImageViews), DepthImageView, ColorImageView, SwapChainExtent, WorldRenderPass, LogicalDevice, SwapChainFramebuffers);
+			vk_CreateFramebuffers(LogicalDevice, SwapChainImageViews, ArrayCount(SwapChainImageViews), DepthImageView, ColorImageView, SwapChainExtent, WorldRenderPass, UIRenderPass, world_framebuffers, swap_chain_framebuffers);
 			
 			// Image textures creation
-			CreateTextureImage(&TextureImage, &TextureImageMemory, PhysicalDevice, LogicalDevice, CommandPool, GraphicQueue, &TextureImageBuffer, &TextureImageBufferMemory, MipLevels);
+			vk_CreateTextureImage(&TextureImage, &TextureImageMemory, PhysicalDevice, LogicalDevice, CommandPool, GraphicQueue, &TextureImageBuffer, &TextureImageBufferMemory, MipLevels);
 			
-			CreateTextureImageView(LogicalDevice, TextureImageView, TextureImage, MipLevels);
+			TextureImageView = vk_CreateImageView(LogicalDevice, TextureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT, MipLevels);
 			
-			CreateTextureSampler(PhysicalDevice, LogicalDevice, TextureSampler, MipLevels);
+			vk_CreateTextureSampler(PhysicalDevice, LogicalDevice, TextureSampler, MipLevels);
 			
 			// End of Image textures creation
-			
-			// Create Vertex Buffer
-			VkBuffer VertexBuffer = {};
-			VkDeviceMemory VertexBufferMemory = {};
-			vertex *Vertices = 0;
-			u32 *Indices = 0;
-			u32 VerticesCount = 0;
 			
 			win32_styr_array VerticesArray = {};
 			win32_styr_array IndicesArray = {};
 			LoadModel(&VerticesArray, &IndicesArray, TranArena);
 			
-			Vertices = (vertex *)VerticesArray.Data;
-			Indices = (u32 *)IndicesArray.Data;
+			// Create Vertex Buffer
+			VkBuffer VertexBuffer = {};
+			VkDeviceMemory VertexBufferMemory = {};
 			
-			VerticesCount = VerticesArray.Count;
-			CreateVertexBuffer(&CommandPool, GraphicQueue, VertexBuffer, &VertexBufferMemory, PhysicalDevice, LogicalDevice, Vertices, VerticesArray.Count);
-			//CreateVertexBuffer(&CommandPool, GraphicQueue, VertexBuffer, &VertexBufferMemory, PhysicalDevice, LogicalDevice, Vertices, VerticesCount);
+			u32 VerticesCount = VerticesArray.Count;
+			vk_CreateVertexBuffer(&CommandPool, GraphicQueue, VertexBuffer, &VertexBufferMemory, PhysicalDevice, LogicalDevice, VerticesArray.Data, sizeof(vertex_3d), VerticesArray.Count);
 			// End of Create Vertex Buffer
 			
 			// Create Index Buffer
-			
 			VkBuffer IndexBuffer = {};
 			VkDeviceMemory IndexBufferMemory = {};
 			
-			//u32 IndicesCount = 6;
 			u32 IndicesCount = IndicesArray.Count;
-			Assert(Indices);
-			CreateIndexBuffer(&CommandPool, GraphicQueue, IndexBuffer, &IndexBufferMemory, PhysicalDevice,LogicalDevice, Indices, IndicesCount);
+			vk_CreateIndexBuffer(&CommandPool, GraphicQueue, IndexBuffer, &IndexBufferMemory, PhysicalDevice,LogicalDevice, get_array_pointer(IndicesArray, u32), IndicesCount);
 			// End of Create Index Buffer
+			
+			VkBuffer ui_vertex_buffer = {};
+			VkBuffer ui_index_buffer = {};
+			VkDeviceMemory ui_vertex_buffer_memory = {};
+			VkDeviceMemory ui_index_buffer_memory = {};
+			u32 indices_and_vertices_count = 64;
+			
+			//vertex_3d Verts[2048];
+			//vk_CreateVertexBuffer(&CommandPool, GraphicQueue, ui_vertex_buffer, &ui_vertex_buffer_memory, PhysicalDevice, LogicalDevice, Verts, sizeof(vertex_3d), indices_and_vertices_count);
+			u32 BufferSize = indices_and_vertices_count * sizeof(vertex_3d);
+			vk_CreateBuffer(PhysicalDevice, LogicalDevice, BufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, 
+							VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, &ui_vertex_buffer, &ui_vertex_buffer_memory);
+			
+			//u32 Indices[2048];
+			//vk_CreateIndexBuffer(&CommandPool, GraphicQueue, ui_index_buffer, &ui_index_buffer_memory, PhysicalDevice,LogicalDevice, Indices, indices_and_vertices_count);
+			BufferSize = indices_and_vertices_count * sizeof(u32);
+			vk_CreateBuffer(PhysicalDevice, LogicalDevice, BufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, 
+							VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, &ui_index_buffer, &ui_index_buffer_memory);
 			
 			// Create Uniform Buffer
 			UniformBuffers = PushArray(TranArena, MAX_FRAMES_IN_FLIGHT, VkBuffer);
 			UniformBuffersMemory = PushArray(TranArena, MAX_FRAMES_IN_FLIGHT, VkDeviceMemory);
-			CreateUniformBuffers(TranArena, PhysicalDevice, LogicalDevice, UniformBuffers, UniformBuffersMemory);
+			vk_CreateUniformBuffers(TranArena, PhysicalDevice, LogicalDevice, UniformBuffers, UniformBuffersMemory);
 			// End of Create Uniform Buffer
 			
 			// Create Descriptor Pool
 			DescriptorSets = PushArray(TranArena, MAX_FRAMES_IN_FLIGHT, VkDescriptorSet);
-			CreateDescriptorPool(LogicalDevice, &DescriptorPool);
-			CreateDescriptorSets(TranArena, LogicalDevice, UniformBuffers, &DescriptorPool, DescriptorSets, DescriptorSetLayout, TextureImageView, TextureSampler);
+			vk_CreateDescriptorPool(LogicalDevice, &DescriptorPool);
+			vk_CreateDescriptorSets(TranArena, LogicalDevice, UniformBuffers, &DescriptorPool, DescriptorSets, DescriptorSetLayout, TextureImageView, TextureSampler);
 			// End of Create Descriptor Pool
-			
-			// Perspective Projection
-			
-			
-			
-			// End of Perspective Projection
 			
 			// Command buffer allocation
 			VkCommandBufferAllocateInfo CommandBufferInfo = {};
 			CommandBufferInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 			CommandBufferInfo.commandPool = CommandPool;
 			CommandBufferInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-			CommandBufferInfo.commandBufferCount = ArrayCount(CommandBuffers);
-			ShowVulkanResult(vkAllocateCommandBuffers(LogicalDevice, &CommandBufferInfo, CommandBuffers), "Command Buffer Created : %s");
+			CommandBufferInfo.commandBufferCount = ArrayCount(CommandBuffersWorld);
+			ShowVulkanResult(vkAllocateCommandBuffers(LogicalDevice, &CommandBufferInfo, CommandBuffersWorld), "Command Buffer Created : %s");
+			
+			CommandBufferInfo.commandBufferCount = ArrayCount(CommandBuffersUI);
+			ShowVulkanResult(vkAllocateCommandBuffers(LogicalDevice, &CommandBufferInfo, CommandBuffersUI), "Command Buffer Created : %s");
 			// End of Command buffer allocation
 			
 			u32 ImageIndex = 0; // TODO(Denis): This later will be an argument to our function which image buffer to use
 			
-			//
-			//
-			// End of Command buffers
-			
-			// Semaphores
-			//
-			//
-			
+			// NOTE(Denis): Semaphores for GPU
 			VkSemaphore ImageAvailableSemaphores[MAX_FRAMES_IN_FLIGHT];
 			VkSemaphore RenderFinishedSemaphores[MAX_FRAMES_IN_FLIGHT];
 			VkFence InFlightFences[MAX_FRAMES_IN_FLIGHT];
-			
-			// Creating the synchronization objects
 			
 			VkSemaphoreCreateInfo SemaphoreInfo = {};
 			SemaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -1047,19 +1013,13 @@ int WinMain(HINSTANCE Instance,
 				PrintMessage(IsSemaphoreAndFencesCreated, IsSemaphoreAndFencesCreated ? "Semaphores and Fences created : VK_SUCCESS\n" : "Semaphores and Fences created : VK_SUCCESS\n");
 			}
 			
-			// End of Creating the synchronization objects
-			
-			//
-			//
-			// End of Semaphores
-			
 			//
 			//
 			// End of VULKAN Initialization
 			
-			u32 CommandsBufferSize = Megabytes(4);
-			void *EngineRenderCommandsBufferBase = Win32AllocateMemory(CommandsBufferSize);
-			engine_render_commands EngineRenderCommands = {&SwapChainExtent.width, &SwapChainExtent.height, CommandsBufferSize, 0, (u8 *)EngineRenderCommandsBufferBase, 0};
+			u32 EngineCommandsBufferSize = Megabytes(1);
+			void *EngineRenderCommandsBufferBase = Win32AllocateMemory(EngineCommandsBufferSize);
+			engine_render_commands EngineRenderCommands = {&SwapChainExtent.width, &SwapChainExtent.height, EngineCommandsBufferSize, 0, (u8 *)EngineRenderCommandsBufferBase, 0};
 			
 			ShowWindow(Window, SW_SHOW);
 			
@@ -1089,6 +1049,8 @@ int WinMain(HINSTANCE Instance,
 					NewInput->MouseX = (f32)MouseP.x;
 					NewInput->MouseY = (f32)(((f32)SwapChainExtent.height - 1) - MouseP.y);
 					NewInput->MouseZ = 0; // TODO(Denis): Support mouse whell ?
+					NewInput->MouseZ = MouseWheelDelta; // TODO(Denis): Support mouse whell ?
+					MouseWheelDelta = 0; // NOTE(Denis): Reset mouse wheel delta to be 0 after we use it
 					
 					f32 WinHalfHeight = ((f32)MouseP.y);
 					f32 WinHalfWidth = ((f32)MouseP.x);
@@ -1124,7 +1086,7 @@ int WinMain(HINSTANCE Instance,
 						//SetCursor(0);
 					}
 					
-					if(NewInput->MouseX > SwapChainExtent.width - 1)
+					if(NewInput->MouseX > SwapChainExtent.width - 2)
 					{
 						SetCursorPos(WindowP.x - (SwapChainExtent.width - 1), WindowP.y);
 						ScreenWrapOffsetX = -(f32)SwapChainExtent.width + 1;
@@ -1190,27 +1152,32 @@ int WinMain(HINSTANCE Instance,
 					
 					VkResult Result = vkAcquireNextImageKHR(LogicalDevice, SwapChain, UINT64_MAX, ImageAvailableSemaphores[CurrentFrame], VK_NULL_HANDLE, &ImageIndex);
 					
-					if(Result == VK_ERROR_OUT_OF_DATE_KHR || Result == VK_SUBOPTIMAL_KHR || FramebufferResized)
+					if(Result == VK_ERROR_OUT_OF_DATE_KHR || Result == VK_SUBOPTIMAL_KHR || GlobalFramebufferResized)
 					{
-						FramebufferResized = false;
-						RecreateSwapChain(QueueFamilyCount, QueueFamilies, PhysicalDevice,
-										  VulkanWindowSurface, QueueIndices, QueuePriority,
-										  CreateDeviceInfo, LogicalDevice, &CommandPool, &GraphicQueue, SwapChainImageFormat, SwapChainFramebuffers, ArrayCount(SwapChainFramebuffers), SwapChainImageViews,ArrayCount(SwapChainImageViews), DepthImageView, &DepthImage, &DepthImageMemory, ColorImageView, &ColorImage, &ColorImageMemory, SwapChain, SwapChainExtent, PresentQueue, SwapChainImages, MipLevels, ArrayCount(SwapChainImages), WorldRenderPass, ImageCount, MSAA_Samples);
+						GlobalFramebufferResized = false;
+						vk_RecreateSwapChain(QueueFamilyCount, QueueFamilies, PhysicalDevice,
+											 VulkanWindowSurface, QueueIndices, QueuePriority,
+											 CreateDeviceInfo, LogicalDevice, &CommandPool, &GraphicQueue, SwapChainImageFormat, world_framebuffers, swap_chain_framebuffers, ArrayCount(world_framebuffers), ArrayCount(swap_chain_framebuffers), SwapChainImageViews,ArrayCount(SwapChainImageViews), DepthImageView, &DepthImage, &DepthImageMemory, ColorImageView, &ColorImage, &ColorImageMemory, SwapChain, SwapChainExtent, PresentQueue, SwapChainImages, MipLevels, ArrayCount(SwapChainImages), WorldRenderPass, UIRenderPass, ImageCount, MSAA_Samples);
 						FirstStart = true; // We need these for mouse delta to be reset every time we resize window
 					}
 					
 					vkResetFences(LogicalDevice, 1, &InFlightFences[CurrentFrame]);
 					// End of Acquire an image from the swap chain
 					
-					// Recording the command buffer
-					vkResetCommandBuffer(CommandBuffers[CurrentFrame], 0);
-					RecordCommandBuffer(CommandBuffers[CurrentFrame], WorldRenderPass, GraphicsPipeline, PipelineLayout, DescriptorSets, SwapChainFramebuffers, SwapChainExtent, VertexBuffer, IndexBuffer, VerticesCount, IndicesCount, CurrentFrame, ImageIndex);
+					// NOTE(Denis): Recording the ui command buffer
 					
-					// Update uniform buffer. // NOTE(Denis): Here is the render commands from the engine function will be update
-					// the game matrices for now.
-					Win32UpdateUniformBuffer(LogicalDevice, SwapChainExtent, UniformBuffersMemory, EngineRenderCommands, CurrentFrame);
-					// End of Update uniform buffer
+					// Recording the world command buffer
+					vkResetCommandBuffer(CommandBuffersWorld[CurrentFrame], 0);
 					
+					vk_RecordCommandBuffer(CommandBuffersWorld[CurrentFrame], WorldRenderPass, WorldPipeline, world_pipeline_layout, DescriptorSets, world_framebuffers, SwapChainExtent, VertexBuffer, IndexBuffer, VerticesCount, IndicesCount, CurrentFrame, ImageIndex, false);
+					
+					vk_UpdateUniformBuffer(LogicalDevice, SwapChainExtent, UniformBuffersMemory, EngineRenderCommands, CurrentFrame);
+					
+					vk_RecordCommandBuffer(CommandBuffersUI[CurrentFrame], UIRenderPass, UIPipeline, ui_pipeline_layout, DescriptorSets, swap_chain_framebuffers, SwapChainExtent, ui_vertex_buffer, ui_index_buffer, indices_and_vertices_count, indices_and_vertices_count, CurrentFrame, ImageIndex, true);
+					
+					vk_update_ui_buffer(LogicalDevice, &ui_vertex_buffer_memory, &ui_index_buffer_memory, EngineRenderCommands);
+					
+					VkCommandBuffer CommandBuffers[] = {CommandBuffersWorld[CurrentFrame], CommandBuffersUI[CurrentFrame]};
 					VkSubmitInfo SubmitInfo = {};
 					SubmitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 					
@@ -1219,15 +1186,15 @@ int WinMain(HINSTANCE Instance,
 					SubmitInfo.waitSemaphoreCount = 1;
 					SubmitInfo.pWaitSemaphores = WaitSemaphores;
 					SubmitInfo.pWaitDstStageMask = WaitStages;
-					SubmitInfo.commandBufferCount = 1;
-					SubmitInfo.pCommandBuffers = &CommandBuffers[CurrentFrame];
+					SubmitInfo.commandBufferCount = 2;
+					SubmitInfo.pCommandBuffers = CommandBuffers;
 					
 					VkSemaphore SignalSemaphores[] = {RenderFinishedSemaphores[CurrentFrame]};
 					SubmitInfo.signalSemaphoreCount = 1;
 					SubmitInfo.pSignalSemaphores = SignalSemaphores;
 					
-					b32 IsQueueSubmitted = (vkQueueSubmit(GraphicQueue, 1, &SubmitInfo, InFlightFences[CurrentFrame]) == VK_SUCCESS);
-					Assert(IsQueueSubmitted);
+					b32 IsQueueSubmited = vkQueueSubmit(GraphicQueue, 1, &SubmitInfo, InFlightFences[CurrentFrame]) == VK_SUCCESS;
+					Assert(IsQueueSubmited);
 					
 					VkPresentInfoKHR PresentInfo = {};
 					PresentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -1243,9 +1210,9 @@ int WinMain(HINSTANCE Instance,
 					
 					if(Result == VK_ERROR_OUT_OF_DATE_KHR || Result == VK_SUBOPTIMAL_KHR)
 					{
-						RecreateSwapChain(QueueFamilyCount, QueueFamilies, PhysicalDevice,
-										  VulkanWindowSurface, QueueIndices, QueuePriority,
-										  CreateDeviceInfo, LogicalDevice, &CommandPool, &GraphicQueue, SwapChainImageFormat, SwapChainFramebuffers, ArrayCount(SwapChainFramebuffers), SwapChainImageViews,ArrayCount(SwapChainImageViews), DepthImageView, &DepthImage, &DepthImageMemory, ColorImageView, &ColorImage, &ColorImageMemory, SwapChain, SwapChainExtent, PresentQueue, SwapChainImages, MipLevels, ArrayCount(SwapChainImages), WorldRenderPass, ImageCount, MSAA_Samples);
+						vk_RecreateSwapChain(QueueFamilyCount, QueueFamilies, PhysicalDevice,
+											 VulkanWindowSurface, QueueIndices, QueuePriority,
+											 CreateDeviceInfo, LogicalDevice, &CommandPool, &GraphicQueue, SwapChainImageFormat, world_framebuffers, swap_chain_framebuffers, ArrayCount(world_framebuffers), ArrayCount(swap_chain_framebuffers), SwapChainImageViews,ArrayCount(SwapChainImageViews), DepthImageView, &DepthImage, &DepthImageMemory, ColorImageView, &ColorImage, &ColorImageMemory, SwapChain, SwapChainExtent, PresentQueue, SwapChainImages, MipLevels, ArrayCount(SwapChainImages), WorldRenderPass, UIRenderPass, ImageCount, MSAA_Samples);
 						FirstStart = true; // We need these for mouse delta to be reset every time we resize window
 					}
 					
@@ -1253,10 +1220,13 @@ int WinMain(HINSTANCE Instance,
 					
 					CurrentFrame = (CurrentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 					
+					EndRenderCommands(&EngineRenderCommands);
+					
 					//
 					//
 					// END OF RENDERING FRAME
 					
+					// NOTE(Denis): Record old input
 					game_input *Temp = NewInput;
 					NewInput = OldInput;
 					OldInput = Temp;
@@ -1271,53 +1241,6 @@ int WinMain(HINSTANCE Instance,
 					FirstStart = true;
 				}
 			}
-			
-#if 0
-			for(u32 Index = 0;
-				Index < MAX_FRAMES_IN_FLIGHT;
-				++Index)
-			{
-				vkDestroySemaphore(LogicalDevice, ImageAvailableSemaphores[Index], 0);
-				vkDestroySemaphore(LogicalDevice, RenderFinishedSemaphores[Index], 0);
-				vkDestroyFence(LogicalDevice, InFlightFences[Index], 0);
-			}
-			
-			vkDestroyShaderModule(LogicalDevice, FragShaderModule, 0);
-			vkDestroyShaderModule(LogicalDevice, VertShaderModule, 0);
-			vkDestroyCommandPool(LogicalDevice, CommandPool, 0);
-			
-			vkDestroyPipelineLayout(LogicalDevice, PipelineLayout, 0);
-			vkDestroyPipeline(LogicalDevice, GraphicsPipeline, 0);
-			vkDestroyRenderPass(LogicalDevice, RenderPass, 0);
-			Win32VkCleanupSwapChain(LogicalDevice, SwapChainFramebuffers, ArrayCount(SwapChainFramebuffers), SwapChainImageViews, ArrayCount(SwapChainImageViews), SwapChain);
-			vkDestroyDescriptorPool(LogicalDevice, DescriptorPool, 0);
-			vkDestroyDescriptorSetLayout(LogicalDevice, DescriptorSetLayout, 0);
-			
-			for(u32 Index = 0;
-				Index < MAX_FRAMES_IN_FLIGHT;
-				++Index)
-			{
-				vkDestroyBuffer(LogicalDevice, UniformBuffers[Index], 0);
-				vkFreeMemory(LogicalDevice, UniformBuffersMemory[Index], 0);
-			}
-			
-			for(u32 Index = 0;
-				Index < ImageCount;
-				++Index)
-			{
-				vkDestroyImageView(LogicalDevice, SwapChainImageViews[Index], 0);
-			}
-			
-			vkDestroySampler(LogicalDevice, TextureSampler, 0);
-			vkDestroyImageView(LogicalDevice, TextureImageView, 0);
-			
-			vkDestroySwapchainKHR(LogicalDevice, SwapChain, 0);
-			vkDestroyBuffer(LogicalDevice, VertexBuffer, 0);
-			vkFreeMemory(LogicalDevice, VertexBufferMemory, 0);
-			vkDestroyDevice(LogicalDevice, 0);
-			vkDestroySurfaceKHR(VulkanInstance, VulkanWindowSurface, 0);
-			vkDestroyInstance(VulkanInstance, 0);
-#endif
 		}
 	}
 	
