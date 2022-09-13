@@ -260,7 +260,6 @@ EngineUpdateAndRender(game_memory *Memory, game_input *Input, engine_render_comm
 	// not vertices and indices, but simply width and height with origin.
 	push_ui_rect(EngineState, *RenderCommands, bg_rect_size.x, bg_rect_size.y, bg_rect_center, V3(0.05f,0.05f,0.05f));
 	push_ui_rect(EngineState, *RenderCommands, bg_rect_size.x * 0.8f, bg_rect_size.y * 0.9f, bg_rect_center, Color);
-	push_ui_rect(EngineState, *RenderCommands, bg_rect_size.x * 0.8f, bg_rect_size.y * 0.9f, bg_rect_center + V2(800, 0), Color);
 	//push_ui_rect(EngineState, *RenderCommands, 300, 300, V2(800, 200), V3(0.25f, 0, 0));
 	//push_ui_rect(*EngineState, RenderCommands, 300, 300, V2(500, 500), V3(0, 1, 0));
 	

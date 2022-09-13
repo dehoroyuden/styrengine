@@ -1341,8 +1341,8 @@ vk_CreatePipeline(VkDevice logical_device, VkRenderPass renderPass, VkExtent2D S
 	}
 	else
 	{
-		VertexFile = PlatformReadEntireFile("shaders/simple_shader_vert.spv");
-		FragmentFile = PlatformReadEntireFile("shaders/simple_shader_frag.spv");
+		VertexFile = PlatformReadEntireFile("shaders/vert.spv");
+		FragmentFile = PlatformReadEntireFile("shaders/frag.spv");
 	}
 	
 	char *VertShaderCode = (char *)VertexFile.Contents;
