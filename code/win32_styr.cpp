@@ -42,8 +42,8 @@ global_variable const s32 MAX_FRAMES_IN_FLIGHT = 2;
 global_variable b32 GlobalFramebufferResized = false;
 global_variable HWND GlobalWindowHandle;
 
-global_variable char *MODEL_PATH = "../data/models/viking_room.obj";
-global_variable char *TEXTURE_PATH = "../data/textures/viking_room.png";
+global_variable char *MODEL_PATH = "../data/models/cube.obj";
+global_variable char *TEXTURE_PATH = "../data/textures/ava_20.jpg";
 
 #include "styr_engine.cpp"
 #include "styr_vulkan.cpp"
