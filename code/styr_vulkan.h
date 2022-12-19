@@ -64,16 +64,28 @@ typedef struct vulkan_context
 	
 } vulkan_context;
 
+typedef struct vulkan_buffer
+{
+	u32 count;
+	VkBuffer *data;
+	VkDeviceMemory *memory;
+	
+} vulkan_buffer;
+
+typedef struct vulkan_material
+{
+	VkPipeline pipeline;
+	u32 textures_count;
+	VkImage *textures;
+} vulkan_material;
+
 struct UniformBufferObject
 {
 	mat4 MVP_Final;
+	mat4 View;
+	mat4 Model;
+	mat4 Proj;
 };
-
-internal void 
-vk_CreateDepthResources(VkPhysicalDevice PhysicalDevice, VkDevice LogicalDevice, VkCommandPool *CommandPool, VkQueue GraphicsQueue, VkExtent2D SwapChainExtent, VkImage *Image, VkDeviceMemory *ImageMemory, VkImageView *DepthImageView, VkSampleCountFlagBits MSAA_Samples);
-
-internal void
-vk_CreateColorResources(VkPhysicalDevice PhysicalDevice, VkDevice LogicalDevice, VkCommandPool *CommandPool, VkQueue GraphicsQueue, VkExtent2D SwapChainExtent, VkImage *Image, VkDeviceMemory *ImageMemory, VkImageView *ColorImageView, VkFormat SwapChainImageFormat, u32 MipLevels, VkSampleCountFlagBits MSAA_Samples);
 
 struct SwapChainSupportDetails
 {
@@ -81,7 +93,5 @@ struct SwapChainSupportDetails
 	VkSurfaceFormatKHR Formats[10];
 	VkPresentModeKHR PresentModes[10];
 };
-
-
 
 #endif //STYR_VULKAN_H

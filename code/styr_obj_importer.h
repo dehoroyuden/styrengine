@@ -49,7 +49,7 @@ void FreeFileMemory(void* Memory)
 	}
 }
 
-read_file_result ReadEntireFile(char* Filename)
+read_file_result ReadEntireFiles(char* Filename)
 {
 	read_file_result Result = {};
 	
@@ -114,7 +114,7 @@ retval GetNormalsArray(NameAndOrder* obj, int line);
 ObjectData  CreateTheObject(char* FilePath) {
 	char* filepath = FilePath;
 	read_file_result result;
-	result = ReadEntireFile(filepath);
+	result = ReadEntireFiles(filepath);
 	char* fileline;
 	fileline = (char*)result.Contents;
 	ObjectData Obj = {};
@@ -196,15 +196,15 @@ void segregator(NameAndOrder* Obj, int count, char* data) {
 void createfarray(char* str, int* pos, NameAndOrder* obj, int line) {
 	//counting of points 
 	int val_counter = 0;
-
-
+	
+	
 	for (int i = 0; str[i] != '\r' && str[i] != '\n' && str[i] != '\0';i++) {
 		if (str[i] == '/') {
 			val_counter++;
 		}
 	}
 	val_counter += val_counter / 2;
-
+	
 	//controling the shape
 	if (val_counter < 9) {
 		printf("Error: Shape is less than triangle\n");
@@ -214,7 +214,7 @@ void createfarray(char* str, int* pos, NameAndOrder* obj, int line) {
 		int i = 0;
 		int num = 0;
 		for (i; str[i] != '\r' && str[i] != '\n' && str[i] != '\0';i++) {
-
+			
 			if (isdigit(str[i])) {
 				num = (num * 10) + (str[i] - '0');
 			}
@@ -229,7 +229,7 @@ void createfarray(char* str, int* pos, NameAndOrder* obj, int line) {
 	}
 	else if (val_counter == 12) {
 		int val_array[12] = {};
-
+		
 		int num = 0;
 		int line = 0;
 		for (int i = 0; str[i] != '\r' && str[i] != '\n' && str[i] != '\0';i++) {
@@ -243,7 +243,7 @@ void createfarray(char* str, int* pos, NameAndOrder* obj, int line) {
 			}
 		}
 		val_array[line] = num;
-
+		
 		//first triangle
 		obj->farray[*pos][0] = val_array[9];
 		obj->farray[*pos][1] = val_array[10];
@@ -254,9 +254,9 @@ void createfarray(char* str, int* pos, NameAndOrder* obj, int line) {
 		obj->farray[*pos][6] = val_array[3];
 		obj->farray[*pos][7] = val_array[4];
 		obj->farray[*pos][8] = val_array[5];
-
+		
 		*pos += 1;
-
+		
 		//second triangle
 		obj->farray[*pos][0] = val_array[3];
 		obj->farray[*pos][1] = val_array[4];
@@ -267,34 +267,34 @@ void createfarray(char* str, int* pos, NameAndOrder* obj, int line) {
 		obj->farray[*pos][6] = val_array[9];
 		obj->farray[*pos][7] = val_array[10];
 		obj->farray[*pos][8] = val_array[11];
-
+		
 		*pos += 1;
 	}
 	else {
 		triangulate(str, pos, obj, val_counter);
 	}
-
-
-
-
-
-
+	
+	
+	
+	
+	
+	
 }
 //triangulating heavy shapes
 void triangulate(char* str, int* pos, NameAndOrder* obj, int val_count) {
-
+	
 	//VERY IMPORTANT
 	//VERTEXES MUST BE CLOCKVISE SHEDULED
-
-
+	
+	
 	int x = 0;
 	int y = 1;
-
-
+	
+	
 	//initializing ingex array and givig space to it
 	int* val_array;
 	val_array = (int*)VirtualAlloc(0, (val_count * sizeof(int)), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-
+	
 	//finding and writing values o initialized array
 	int num = 0;
 	int line = 0;
@@ -328,7 +328,7 @@ void triangulate(char* str, int* pos, NameAndOrder* obj, int val_count) {
 	}
 	else {//checking y if x is all right
 		counter = 1;
-
+		
 		for (int i = 0;i < val_count; i += 3) {
 			if (i == 0)
 				y_check = obj->PPosition[val_array[i] - 1].v[y];
@@ -339,7 +339,7 @@ void triangulate(char* str, int* pos, NameAndOrder* obj, int val_count) {
 			x = 0;
 			y = 2;
 		}
-
+		
 	}
 	//CHECH IF VERTEX ARE IN CLOCKWISE OR CONTER-CLOCKWISE DIRECTION
 	// the main formula A = 1/2*S(xi*yi+1 - xi+1*yi) + xN*y1 - x1*yN
@@ -347,20 +347,20 @@ void triangulate(char* str, int* pos, NameAndOrder* obj, int val_count) {
 	// this formula counts the space that our figure takes and here we need only the sign of answer
 	// if clockwise <0 else if conter-clockwise>0
 	float clock_chech = 0;
-
+	
 	for (int count = 0; count <= (val_count - 3); count += 3) {
 		if (count == (val_count - 3)) {
 			clock_chech += (obj->PPosition[val_array[count] - 1].v[x] * obj->PPosition[val_array[0] - 1].v[y] -
-				obj->PPosition[val_array[0]].v[x] * obj->PPosition[val_array[count] - 1].v[y]);
+							obj->PPosition[val_array[0]].v[x] * obj->PPosition[val_array[count] - 1].v[y]);
 		}
 		else {
 			clock_chech += (obj->PPosition[val_array[count] - 1].v[x] * obj->PPosition[val_array[count + 3] - 1].v[y] -
-				obj->PPosition[val_array[count + 3] - 1].v[x] * obj->PPosition[val_array[count] - 1].v[y]);
+							obj->PPosition[val_array[count + 3] - 1].v[x] * obj->PPosition[val_array[count] - 1].v[y]);
 		}
 	}
-
-
-
+	
+	
+	
 	//////////////////////////////////////////////////////////////////////////////
 	//when array is filled and x with y are checked we are checking degrees beetween vectors
 	/*for example we have 3 point 0 =(0,0), -1 = (-2,-2), 1 = (2, 0)		 0 ________1
@@ -370,7 +370,7 @@ void triangulate(char* str, int* pos, NameAndOrder* obj, int val_count) {
 	IF ANSWER IS GREATER THAN 0 THAT MEANS THAT ANGLE IS LESS THAN 180
 	IF ==0 THAT MEANS THAT ANGLE IS ==180 ant its not good as if it was LESS than 0
 	AND IF ANGLE IS >180 WE Cant take this tiangle to triangulate*/
-
+	
 	//points in 2D after checking 
 	v2 point_1 = {};
 	v2 point0 = {};
@@ -381,23 +381,23 @@ void triangulate(char* str, int* pos, NameAndOrder* obj, int val_count) {
 	v2 vectorb = {};
 	//index for deleting used verteces
 	int index = val_count;
-
+	
 	for (int i = 0;;) {
-
-
+		
+		
 		//bool check if angle is less than 180
 		bool CrossVectorAngle = true;
-
-
-
+		
+		
+		
 		//check if index is more than 9 that means that there is no triangle, but i got through all figure and now have to re-zero  
 		//till index wort == 9 what means tha all of poinst were triangulated
 		if (i > index && index > 9)
 			i = 0;
-
-
-
-
+		
+		
+		
+		
 		//check if index is equal to 9 it means that there left onlu 1 triangle
 		if (index <= 9) {
 			line = 0;
@@ -407,8 +407,8 @@ void triangulate(char* str, int* pos, NameAndOrder* obj, int val_count) {
 			*pos += 1;
 			break;
 		}
-
-
+		
+		
 		//||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 		//I IN THE BEGINNING
 		//||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
@@ -417,11 +417,11 @@ void triangulate(char* str, int* pos, NameAndOrder* obj, int val_count) {
 			point_1 = { obj->PPosition[val_array[index - 3] - 1].v[x], obj->PPosition[val_array[index - 3] - 1].v[y] };
 			point0 = { obj->PPosition[val_array[i] - 1].v[x], obj->PPosition[val_array[i] - 1].v[y] };
 			point1 = { obj->PPosition[val_array[i + 3] - 1].v[x], obj->PPosition[val_array[i + 3] - 1].v[y] };
-
+			
 			//find vector a and b
 			vectora = { (point_1.x - point0.x),(point_1.y - point0.y) };
 			vectorb = { (point1.x - point0.x),(point1.y - point0.y) };
-
+			
 			//checking angle and if conter-clockwise - changing the definition for angles 
 			if ((vectora.x * vectorb.y - vectora.y * vectorb.x) <= 0 && clock_chech < 0) {
 				CrossVectorAngle = false;
@@ -430,24 +430,24 @@ void triangulate(char* str, int* pos, NameAndOrder* obj, int val_count) {
 				CrossVectorAngle = false;
 			}
 			if (CrossVectorAngle == true) {
-
-
+				
+				
 				//checking all others poins if they are int array of triangle 
 				//Point is in triangle if summ of w1 and w2 are <= 1 
 				//there are special fomules for w1 and 2 that will be written here
-
+				
 				int point_counter = 0;
-
+				
 				for (int k = (i + 6);k < index - 3;k += 3) {//(point after p1; stop before p_1; step every 3 special for vertex)
-
+					
 					if (point_counter != 0) {
 						i += 3;
 						break;
 					}
-
+					
 					point_p = { obj->PPosition[val_array[k] - 1].v[x], obj->PPosition[val_array[k] - 1].v[y] };
 					float w1 = (point0.x * (point_1.y - point0.y) + (point_p.y - point0.y) * (point_1.x - point0.x) - point_p.x * (point_1.y - point0.y)) / ((point1.y - point0.y) * (point_1.x - point0.x) - (point1.x - point0.x) * (point_1.y - point0.y));
-
+					
 					float w2;
 					//there are some problems with sqares, so i need ro use some fixes
 					if (w1 >= 1 && (point_1.y - point0.y) == 0)
@@ -456,19 +456,19 @@ void triangulate(char* str, int* pos, NameAndOrder* obj, int val_count) {
 						w2 = 0.0;
 					else
 						w2 = (point_p.y - point0.y - w1 * (point1.y - point0.y)) / (point_1.y - point0.y);//original formula
-
+					
 					//final check
 					if (w1 < 0 || w2 < 0 || (w1 >= 0 && w2 >= 0 && (w1 + w2) > 1)) {
-
+						
 					}
 					else {
 						point_counter++;//leveling count of points in triangle
 					}
-
+					
 				}
-
-
-
+				
+				
+				
 				if (point_counter == 0) {
 					//writing the triangle to the list leveling pos and deleting point 0 from list
 					obj->farray[*pos][0] = val_array[index - 3];
@@ -480,9 +480,9 @@ void triangulate(char* str, int* pos, NameAndOrder* obj, int val_count) {
 					obj->farray[*pos][6] = val_array[i + 3];
 					obj->farray[*pos][7] = val_array[i + 4];
 					obj->farray[*pos][8] = val_array[i + 5];
-
+					
 					*pos += 1;
-
+					
 					//deleting the 0 point from array and marking last 3 symbols as 0
 					for (int q = i; q < (index - 3); q++)
 					{
@@ -494,13 +494,13 @@ void triangulate(char* str, int* pos, NameAndOrder* obj, int val_count) {
 				}
 				else {
 					//leveling i if some of conditions are not true
-
+					
 				}
 			}
 			else {
 				i += 3;
 			}
-
+			
 		}
 		//||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 		//I IN THE END
@@ -509,11 +509,11 @@ void triangulate(char* str, int* pos, NameAndOrder* obj, int val_count) {
 			point_1 = { obj->PPosition[val_array[i - 3] - 1].v[x], obj->PPosition[val_array[i - 3] - 1].v[y] };
 			point0 = { obj->PPosition[val_array[i] - 1].v[x], obj->PPosition[val_array[i] - 1].v[y] };
 			point1 = { obj->PPosition[val_array[0] - 1].v[x], obj->PPosition[val_array[0] - 1].v[y] };
-
+			
 			//find vector a and b
 			vectora = { (point_1.x - point0.x),(point_1.y - point0.y) };
 			vectorb = { (point1.x - point0.x),(point1.y - point0.y) };
-
+			
 			//checking angle and if conter-clockwise - changing the definition for angles 
 			if ((vectora.x * vectorb.y - vectora.y * vectorb.x ) <= 0 && clock_chech < 0) {
 				CrossVectorAngle = false;
@@ -525,19 +525,19 @@ void triangulate(char* str, int* pos, NameAndOrder* obj, int val_count) {
 				//checking all others poins if they are int array of triangle 
 				//Point is in triangle if summ of w1 and w2 are <= 1 
 				//there are special fomules for w1 and 2 that will be written here
-
+				
 				int point_counter = 0;
-
+				
 				for (int k = 3;k < (i - 3);k += 3) {//(point from the 0; stop before p_1; step every 3 special for vertex)
-
+					
 					if (point_counter != 0) {
 						i += 3;
 						break;
 					}
-
+					
 					point_p = { obj->PPosition[val_array[k] - 1].v[x], obj->PPosition[val_array[k] - 1].v[y] };
 					float w1 = (point0.x * (point_1.y - point0.y) + (point_p.y - point0.y) * (point_1.x - point0.x) - point_p.x * (point_1.y - point0.y)) / ((point1.y - point0.y) * (point_1.x - point0.x) - (point1.x - point0.x) * (point_1.y - point0.y));
-
+					
 					float w2;
 					//there are some problems with sqares, so i need ro use some fixes
 					if (w1 >= 1 && (point_1.y - point0.y) == 0)
@@ -546,10 +546,10 @@ void triangulate(char* str, int* pos, NameAndOrder* obj, int val_count) {
 						w2 = 0.0;
 					else
 						w2 = (point_p.y - point0.y - w1 * (point1.y - point0.y)) / (point_1.y - point0.y);//original formula
-
+					
 					//final check
 					if (w1 < 0 || w2 < 0 || (w1 >= 0 && w2 >= 0 && (w1 + w2) > 1)) {
-
+						
 					}
 					else {
 						point_counter++;//leveling count of points in triangle
@@ -566,9 +566,9 @@ void triangulate(char* str, int* pos, NameAndOrder* obj, int val_count) {
 					obj->farray[*pos][6] = val_array[0];
 					obj->farray[*pos][7] = val_array[1];
 					obj->farray[*pos][8] = val_array[2];
-
+					
 					*pos += 1;
-
+					
 					//deleting the 0 point from array and marking last 3 symbols as 0
 					for (int q = i; q < (index - 3); q++)
 					{
@@ -580,14 +580,14 @@ void triangulate(char* str, int* pos, NameAndOrder* obj, int val_count) {
 				}
 				else {
 					//leveling i if some of conditions are not true
-
+					
 				}
 			}
 			else {
 				i += 3;
 			}
-
-
+			
+			
 		}
 		//||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 		//I IN THE MIDLE
@@ -596,11 +596,11 @@ void triangulate(char* str, int* pos, NameAndOrder* obj, int val_count) {
 			point_1 = { obj->PPosition[val_array[i - 3] - 1].v[x], obj->PPosition[val_array[i - 3] - 1].v[y] };
 			point0 = { obj->PPosition[val_array[i] - 1].v[x], obj->PPosition[val_array[i] - 1].v[y] };
 			point1 = { obj->PPosition[val_array[i + 3] - 1].v[x], obj->PPosition[val_array[i + 3] - 1].v[y] };
-
+			
 			//find vector a and b
 			vectora = { (point_1.x - point0.x),(point_1.y - point0.y) };
 			vectorb = { (point1.x - point0.x),(point1.y - point0.y) };
-
+			
 			//checking angle and if conter-clockwise - changing the definition for angles 
 			if ((vectora.x * vectorb.y - vectora.y * vectorb.x) <= 0 && clock_chech < 0) {
 				CrossVectorAngle = false;
@@ -612,20 +612,20 @@ void triangulate(char* str, int* pos, NameAndOrder* obj, int val_count) {
 				//checking all others poins if they are int array of triangle 
 				//Point is in triangle if summ of w1 and w2 are <= 1 
 				//there are special fomules for w1 and 2 that will be written here
-
+				
 				int point_counter = 0;
 				int k = 0;
-
+				
 				for (k;k < (i - 3);k += 3) {//(point in 0; stop before p_1; step every 3 special for vertex)
-
+					
 					if (point_counter != 0) {
 						i += 3;
 						break;
 					}
-
+					
 					point_p = { obj->PPosition[val_array[k] - 1].v[x], obj->PPosition[val_array[k] - 1].v[y] };
 					float w1 = (point0.x * (point_1.y - point0.y) + (point_p.y - point0.y) * (point_1.x - point0.x) - point_p.x * (point_1.y - point0.y)) / ((point1.y - point0.y) * (point_1.x - point0.x) - (point1.x - point0.x) * (point_1.y - point0.y));
-
+					
 					float w2;
 					//there are some problems with sqares, so i need ro use some fixes
 					if (w1 >= 1 && (point_1.y - point0.y) == 0)
@@ -634,30 +634,30 @@ void triangulate(char* str, int* pos, NameAndOrder* obj, int val_count) {
 						w2 = 0.0;
 					else
 						w2 = (point_p.y - point0.y - w1 * (point1.y - point0.y)) / (point_1.y - point0.y);//original formula
-
+					
 					//final check
 					if (w1 < 0 || w2 < 0 || (w1 >= 0 && w2 >= 0 && (w1 + w2) > 1)) {
-
+						
 					}
 					else {
 						point_counter++;//leveling count of points in triangle
 					}
-
+					
 				}
-
+				
 				for (k = (i + 6);k <= (index - 3);k += 3) {//(point after p1; stop in the end of list; step every 3 special for vertex)
-
+					
 					if (point_counter != 0) {
 						i += 3;
 						break;
 					}
-
+					
 					point_p = { obj->PPosition[val_array[k] - 1].v[x], obj->PPosition[val_array[k] - 1].v[y] };
 					float w1 = (point0.x * (point_1.y - point0.y) + (point_p.y - point0.y) * (point_1.x - point0.x) - point_p.x * (point_1.y - point0.y)) / ((point1.y - point0.y) * (point_1.x - point0.x) - (point1.x - point0.x) * (point_1.y - point0.y));
 					float w2 = (point_p.y - point0.y - w1 * (point1.y - point0.y)) / (point_1.y - point0.y);
-
+					
 					if (w1 < 0 || w2 < 0 || (w1 >= 0 && w2 >= 0 && (w1 + w2) > 1)) {
-
+						
 					}
 					else {
 						point_counter++;//leveling count of points in triangle
@@ -674,9 +674,9 @@ void triangulate(char* str, int* pos, NameAndOrder* obj, int val_count) {
 					obj->farray[*pos][6] = val_array[i + 3];
 					obj->farray[*pos][7] = val_array[i + 4];
 					obj->farray[*pos][8] = val_array[i + 5];
-
+					
 					*pos += 1;
-
+					
 					//deleting the 0 point from array and marking last 3 symbols as 0
 					for (int q = i; q < (index - 3); q++)
 					{
@@ -688,14 +688,14 @@ void triangulate(char* str, int* pos, NameAndOrder* obj, int val_count) {
 				}
 				else {
 					//leveling i if some of conditions are not true
-
+					
 				}
 			}
 			else {
 				i += 3;
 			}
-
-
+			
+			
 		}
 	}
 }

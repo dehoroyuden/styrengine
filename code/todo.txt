@@ -1,1 +1,9 @@
 Init**
+
+Vulkan Features
+- Any count of models rendering and loading to the custom file format
+- Basic material system
+- Add model from UI to the scene
+- Model manipulation gizmos
+- Scene graph
+- Save\Load Scene Graph

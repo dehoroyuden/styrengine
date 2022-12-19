@@ -137,5 +137,3 @@ the sampler selects a mip level according to the following pseudocode:
 	{
 		color = blend(sample(level), sample(level + 1))
 	}
-
-YUP

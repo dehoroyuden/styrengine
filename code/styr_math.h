@@ -777,6 +777,12 @@ IsInRectangle(rectangle2 Rectangle, v2 Test)
 	return(Result);
 }
 
+internal bool
+IsInRectangle(mat4 screenmat, v2 center, v2 size, v2 test) {
+
+
+}
+
 inline v2
 GetBarycentric(rectangle2 A, v2 P)
 {
@@ -787,7 +793,6 @@ GetBarycentric(rectangle2 A, v2 P)
 	
 	return(Result);
 }
-
 
 //
 // NOTE(Denis): Rectangle3
@@ -1409,6 +1414,19 @@ PerspectiveProjection(f32 FovyInRadians, f32 Aspect, f32 NearPlane, f32 FarPlane
 	Result.Value3_3 = -(FarPlane + NearPlane) / (FarPlane - NearPlane);
 	Result.Value3_4 = -1.0f;
 	Result.Value4_3 = -(2.0f * FarPlane * NearPlane) / (FarPlane - NearPlane);
+	Result.Value4_4 = 0;
+	
+	return Result;
+}
+
+inline mat4
+OrthographicProjection(u32 orthographic_scale, f32 screen_width, f32 screen_height, f32 near_plane, f32 far_plane)
+{
+	mat4 Result = {};
+	
+	f32 aspect = (screen_width / screen_height) * orthographic_scale;
+	f32 bottom_top = 1.0f * orthographic_scale;
+	Result = ConvertToMatrix4x4(glm::ortho(-aspect, aspect, bottom_top, -bottom_top, near_plane, far_plane));
 	
 	return Result;
 }
@@ -1426,6 +1444,73 @@ ScreenSpaceToVulkanSpace(u32 ScreenWidth, u32 ScreenHeight)
 	Result.Value4_4 = 1;
 	
 	return Result;
+}
+
+inline mat4
+CameraSpaceToVulkanSpace()
+{
+	mat4 Result = {};
+	
+	Result.Value1_1 = 2.0f;
+	Result.Value1_4 = -1;
+	Result.Value2_2 = 2.0f;
+	Result.Value2_4 = -1;
+	Result.Value3_3 = 1;
+	Result.Value4_4 = 1;
+	
+	return Result;
+}
+
+inline rectangle2
+RectMulMat4x4(rectangle2 rectangle, mat4 matrix)
+{
+	rectangle2 Result = {};
+	
+	rectangle.Min = (matrix * V4(rectangle.Min.x, rectangle.Min.y, 0, 1)).xy;
+	rectangle.Max = (matrix * V4(rectangle.Max.x, rectangle.Max.y, 0, 1)).xy;
+	
+	Result = rectangle;
+	
+	return Result;
+}
+
+// TODO(Denis): Please write our own version of matrix inversion!
+inline mat4
+InverseMat4x4(mat4 matrix)
+{
+	mat4 result = {};
+	
+	glm::mat4x4 glm_matrix = glm::inverse(ConvertFromMatrix4x4(matrix));
+	
+	result = ConvertToMatrix4x4(glm_matrix);
+	
+	return result;
+	
+}
+
+inline rectangle2 
+screen_to_vulkan_coords_rect(rectangle2 current_rect, u32 screen_width, u32 screen_height)
+{
+	rectangle2 result = {};
+	
+	mat4 VulkanSpaceMatrix = ScreenSpaceToVulkanSpace(screen_width, screen_height);
+	
+	result = RectMulMat4x4(current_rect, VulkanSpaceMatrix);
+	
+	return result;
+}
+
+inline rectangle2 
+vulkan_to_screen_coords_rect(rectangle2 current_rect, u32 screen_width, u32 screen_height)
+{
+	rectangle2 result = {};
+	
+	mat4 vulkan_space_matrix = ScreenSpaceToVulkanSpace(screen_width, screen_height);
+	mat4 screen_space_matrix = InverseMat4x4(vulkan_space_matrix);
+	
+	result = RectMulMat4x4(current_rect, screen_space_matrix);
+	
+	return result;
 }
 
 #define HANDMADE_DENGINE_MATH_H

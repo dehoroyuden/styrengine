@@ -143,6 +143,41 @@ printf(type, Expression);
 		void *Platform;
 	}  platform_file_handle;
 	
+	typedef struct platform_file_group
+	{
+		u32 FileCount;
+		void *Platform;
+	} platform_file_group;
+	
+	typedef enum platfrom_file_type
+	{
+		PlatformFileType_AssetFile,
+		PlatformFileType_SavedGameFile,
+		
+		PlatformFileType_Count,
+	} platform_file_type;
+	
+#define PLATFORM_GET_ALL_FILE_OF_TYPE_BEGIN(name) platform_file_group name(platform_file_type Type)
+	typedef PLATFORM_GET_ALL_FILE_OF_TYPE_BEGIN(platform_get_all_files_of_type_begin);
+	
+#define PLATFORM_GET_ALL_FILE_OF_TYPE_END(name) void name(platform_file_group *FileGroup)
+	typedef PLATFORM_GET_ALL_FILE_OF_TYPE_END(platform_get_all_files_of_type_end);
+	
+#define PLATFORM_OPEN_FILE(name) platform_file_handle name(platform_file_group *FileGroup)
+	typedef PLATFORM_OPEN_FILE(platform_open_next_file);
+	
+#define PLATFORM_READ_DATA_FROM_FILE(name) void name(platform_file_handle *Source, u64 Offset, u64 Size, void *Dest)
+	typedef PLATFORM_READ_DATA_FROM_FILE(platform_read_data_from_file);
+	
+#define PLATFORM_FILE_ERROR(name) void name(platform_file_handle *Handle, char *Message)
+	typedef PLATFORM_FILE_ERROR(platform_file_error);
+	
+#define PLATFORM_ALLOCATE_TEXTURE(name) void *name(u32 Width, u32 Height, void *Data)
+	typedef PLATFORM_ALLOCATE_TEXTURE(platform_allocate_texture);
+	
+#define PLATFORM_DEALLOCATE_TEXTURE(name) void name(void *Texture)
+	typedef PLATFORM_DEALLOCATE_TEXTURE(platform_deallocate_texture);
+	
 #define PLATFORM_ALLOCATE_MEMORY(name) void *name(memory_index Size)
 	typedef PLATFORM_ALLOCATE_MEMORY(platform_allocate_memory);
 	
@@ -199,6 +234,15 @@ printf(type, Expression);
 		platform_allocate_memory *AllocateMemory;
 		platform_deallocate_memory *DeallocateMemory;
 		
+		platform_allocate_texture *AllocateTexture;
+		platform_deallocate_texture *DeallocateTexture;
+		
+		platform_get_all_files_of_type_begin *GetAllFilesOfTypeBegin;
+		platform_get_all_files_of_type_end *GetAllFilesOfTypeEnd;
+		platform_open_next_file *OpenNextFile;
+		platform_read_data_from_file *ReadDataFromFile;
+		platform_file_error *FileError;
+		
 		platform_assign_styr_string *StyrAssignString;
 	} platform_api;
 	
@@ -215,6 +259,8 @@ printf(type, Expression);
 		
 		b32 ExecutableReloaded;
 		platform_api PlatformAPI;
+		
+		f32 FrameSecondsElapsed;
 		
 		// NOTE(Denis): Signals back to the platform layer
 		b32 QuitRequested;
@@ -236,7 +282,9 @@ printf(type, Expression);
 		
 		union
 		{
-			game_button_state Buttons[14];
+			// NOTE(Denis): Please notice that we need to update button counts properly
+			// because we process them in loop!!!
+			game_button_state Buttons[60];
 			struct {
 				game_button_state MoveUp;
 				game_button_state MoveDown;
@@ -255,6 +303,60 @@ printf(type, Expression);
 				
 				game_button_state Back;
 				game_button_state Start;
+
+				game_button_state ArrowLeft;
+				game_button_state ArrowRight;
+
+				game_button_state LShift;
+				game_button_state BackSpace;
+				game_button_state LCtrl;
+
+
+				game_button_state ButtonSpace;
+
+				game_button_state ButtonR;
+				game_button_state ButtonT;
+				game_button_state ButtonY;
+				game_button_state ButtonU;
+				game_button_state ButtonI;
+				game_button_state ButtonO;
+				game_button_state ButtonP;
+				game_button_state Button1afterP;
+				game_button_state Button2afterP;
+				game_button_state Button3afterP;
+
+				game_button_state ButtonF;
+				game_button_state ButtonG;
+				game_button_state ButtonH;
+				game_button_state ButtonJ;
+				game_button_state ButtonK;
+				game_button_state ButtonL;
+				game_button_state Button1afterL;
+				game_button_state Button2afterL;
+
+				game_button_state ButtonZ;
+				game_button_state ButtonX;
+				game_button_state ButtonC;
+				game_button_state ButtonV;
+				game_button_state ButtonB;
+				game_button_state ButtonN;
+				game_button_state ButtonM;
+				game_button_state Button1afterM;
+				game_button_state Button2afterM;
+				game_button_state Button3afterM;
+
+				game_button_state Button1;
+				game_button_state Button2;
+				game_button_state Button3;
+				game_button_state Button4;
+				game_button_state Button5;
+				game_button_state Button6;
+				game_button_state Button7;
+				game_button_state Button8;
+				game_button_state Button9;
+				game_button_state Button0;
+				game_button_state Button1after0;
+				game_button_state Button2after0;
 			};
 		};
 	} game_controller_input;
@@ -315,6 +417,11 @@ printf(type, Expression);
 	};
 	
 	struct font_id
+	{
+		u32 Value;
+	};
+	
+	struct mesh_id
 	{
 		u32 Value;
 	};
@@ -483,60 +590,24 @@ printf(type, Expression);
 		
 		f32 TE[4][4];
 	};
-}
-
-PLATFORM_FREE_FILE_MEMORY(PlatformFreeFileMemory)
-{
-	if(Memory)
-	{
-		VirtualFree(Memory, 0, MEM_RELEASE);
-	}
-}
-
-PLATFORM_READ_ENTIRE_FILE(PlatformReadEntireFile)
-{
-	read_file_result Result = {};
 	
-	HANDLE FileHandle = CreateFileA(Filename,GENERIC_READ,FILE_SHARE_READ, 0,OPEN_EXISTING,0,0);
-	if(FileHandle != INVALID_HANDLE_VALUE)
+	struct vertex_3d
 	{
-		LARGE_INTEGER FileSize;
-		if(GetFileSizeEx(FileHandle, &FileSize))
-		{
-			uint32 FileSize32 = SafeTruncateUInt64(FileSize.QuadPart);
-			Result.Contents = VirtualAlloc(0,FileSize.QuadPart, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
-			if(Result.Contents)
-			{
-				DWORD BytesRead;
-				if(ReadFile(FileHandle, Result.Contents, FileSize32, &BytesRead,0) && 
-				   (FileSize32 == BytesRead))
-				{
-					// NOTE(Denis): File read successfully
-					Result.ContentsSize = FileSize32;
-				}
-				else
-				{
-					PlatformFreeFileMemory(Result.Contents);
-					Result.Contents = 0;
-				}
-			}
-			else
-			{
-				// TODO(Denis): Logging
-			}
-		}
-		else
-		{
-			// TODO(Denis): Logging
-		}
-		CloseHandle(FileHandle);
-	}
-	else
-	{
-		// TODO(Denis): Logging
-	}
+		v3 Pos;
+		v4 Color;
+		v2 TexCoord;
+		
+		// NOTE(Denis): Editor only
+		//u32 entity_id;
+	};
 	
-	return(Result);
+	struct vertex_2d
+	{
+		v2 Pos;
+		v4 Color;
+		v2 TexCoord;
+	};
+	
 }
 
 // NOTE(Denis): Probably need to be relocated to its own file, to the game inside code

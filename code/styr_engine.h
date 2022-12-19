@@ -3,7 +3,7 @@
 // Styr Engine -- author: Denis Hoida | 2022
 //----------------------------------------------------------------
 
-struct memory_chunk
+struct memory_arena
 {
 	memory_index Size;
 	u8 *Base;
@@ -12,14 +12,14 @@ struct memory_chunk
 	u32 TempCount;
 };
 
-struct chunk_temporary_memory
+struct temporary_memory
 {
-	memory_chunk *Arena;
+	memory_arena *Arena;
 	memory_index Used;
 };
 
 inline void
-InitializeArena(memory_chunk *Chunk, memory_index Size, void *Base)
+InitializeArena(memory_arena *Chunk, memory_index Size, void *Base)
 {
 	Chunk->Size = Size;
 	Chunk->Base = (u8 *)Base;
@@ -28,7 +28,7 @@ InitializeArena(memory_chunk *Chunk, memory_index Size, void *Base)
 }
 
 inline memory_index
-GetAlignmentOffset(memory_chunk *Chunk, memory_index Alignment)
+GetAlignmentOffset(memory_arena *Chunk, memory_index Alignment)
 {
 	memory_index AlignmentOffset = 0;
 	
@@ -95,7 +95,7 @@ NoClear(void)
 }
 
 inline memory_index
-GetArenaSizeRemaining(memory_chunk *Arena, arena_push_params Params = DefaultArenaParams())
+GetArenaSizeRemaining(memory_arena *Arena, arena_push_params Params = DefaultArenaParams())
 {
 	memory_index Result = Arena->Size - (Arena->Used + GetAlignmentOffset(Arena, Params.Alignment));
 	return(Result);
@@ -105,6 +105,7 @@ GetArenaSizeRemaining(memory_chunk *Arena, arena_push_params Params = DefaultAre
 #define PushStruct(Arena, type, ...) ((type *)PushSize_(Arena, sizeof(type), ##__VA_ARGS__))
 #define PushSize(Arena, Size, ...) PushSize_(Arena, Size, ##__VA_ARGS__)
 
+#define ZeroStruct(Instance) ZeroSize(sizeof(Instance), &(Instance))
 #define ZeroArray(Count, Pointer) ZeroSize(Count * sizeof((Pointer)[0]), Pointer)
 
 inline void
@@ -118,7 +119,7 @@ ZeroSize(memory_index Size, void *Ptr)
 }
 
 inline memory_index
-GetEffectiveSizeFor(memory_chunk *Arena, memory_index SizeInit, arena_push_params Params = DefaultArenaParams())
+GetEffectiveSizeFor(memory_arena *Arena, memory_index SizeInit, arena_push_params Params = DefaultArenaParams())
 {
 	memory_index Size = SizeInit;
 	
@@ -129,7 +130,7 @@ GetEffectiveSizeFor(memory_chunk *Arena, memory_index SizeInit, arena_push_param
 }
 
 inline b32
-ArenaHasRoomFor(memory_chunk *Arena, memory_index SizeInit, arena_push_params Params = DefaultArenaParams())
+ArenaHasRoomFor(memory_arena *Arena, memory_index SizeInit, arena_push_params Params = DefaultArenaParams())
 {
 	memory_index Size = GetEffectiveSizeFor(Arena, SizeInit, Params);
 	b32 Result = ((Arena->Used + Size) <= Arena->Size);
@@ -137,7 +138,7 @@ ArenaHasRoomFor(memory_chunk *Arena, memory_index SizeInit, arena_push_params Pa
 }
 
 inline void *
-PushSize_(memory_chunk *Arena, memory_index SizeInit, arena_push_params Params = DefaultArenaParams())
+PushSize_(memory_arena *Arena, memory_index SizeInit, arena_push_params Params = DefaultArenaParams())
 {
 	memory_index Size = GetEffectiveSizeFor(Arena, SizeInit, Params);
 	
@@ -157,10 +158,10 @@ PushSize_(memory_chunk *Arena, memory_index SizeInit, arena_push_params Params =
 	return Result;
 }
 
-inline chunk_temporary_memory
-BeginTemporaryMemory(memory_chunk *Arena)
+inline temporary_memory
+BeginTemporaryMemory(memory_arena *Arena)
 {
-	chunk_temporary_memory Result;
+	temporary_memory Result;
 	
 	Result.Arena = Arena;
 	Result.Used = Arena->Used;
@@ -171,9 +172,9 @@ BeginTemporaryMemory(memory_chunk *Arena)
 }
 
 inline void
-EndTemporaryMemory(chunk_temporary_memory TempMem)
+EndTemporaryMemory(temporary_memory TempMem)
 {
-	memory_chunk *Arena = TempMem.Arena;
+	memory_arena *Arena = TempMem.Arena;
 	Assert(Arena->Used >= TempMem.Used);
 	Arena->Used = TempMem.Used;
 	Assert(Arena->TempCount > 0);
@@ -181,106 +182,145 @@ EndTemporaryMemory(chunk_temporary_memory TempMem)
 }
 
 inline void
-CheckArena(memory_chunk *Arena)
+CheckArena(memory_arena *Arena)
 {
 	Assert(Arena->TempCount == 0);
 }
 
+inline void
+SubArena(memory_arena *Result, memory_arena *Arena, memory_index Size, arena_push_params Params = DefaultArenaParams())
+{
+	Result->Size = Size;
+	Result->Base = (uint8 *)PushSize_(Arena, Size, Params);
+	Result->Used = 0;
+	Result->TempCount = 0;
+}
+
+#include "styr_asset.h"
+#include "styr_debug.h"
+#include "styr_material.h"
+#include "styr_transform.h"
+#include "styr_mesh.h"
+#include "styr_scene_graph.h"
+#include "styr_camera.h"
+#include "styr_basic_ui.h"
+#include "styr_basic_ui_text.h"
+
 enum engine_render_command_type
 {
 	EngineRenderCommandType_None,
-	EngineRenderCommandType_ViewMatrix,
-	EngineRenderCommandType_Rect,
-	EngineRenderCommandType_Bitmap,
+	
+	EngineRenderCommandType_Quad,
+	EngineRenderCommandType_PushMesh,
+	EngineRenderCommandType_PushAllMeshes,
+	EngineRenderCommandType_TextRect,
+	EngineRenderCommandType_PushTexture,
+	EngineRenderCommandType_TexturedRect,
+	EngineRenderCommandType_UpdateCamera,
+	EngineRenderCommandType_UpdateMeshMatrix,
+};
+
+struct engine_render_entry_push_all_meshes
+{
+	u32 vertex_count;
+	u32 index_count;
+	u32 mesh_entry_offsets_count;
+	u32 *mesh_entry_vertex_offsets;
+	u32 *mesh_entry_index_offsets;
+	u32 *mesh_entry_texture_indices;
+	
+	vertex_3d *vertices;
+	u32 *indices;
+};
+
+struct engine_render_entry_update_camera
+{
+	mat4 view_mat4x4;
+	mat4 proj_mat4x4;
+	mat4 *model_mats4x4;
+	
+	u32 game_entities_to_update_count;
+};
+
+struct engine_render_entry_text_rect
+{
+	vertex_3d *verts_array;
+	u32 *indices_array;
+	u32 vertex_count;
+	u32 indices_count;
+};
+
+struct engine_render_entry_quad
+{
+	vertex_3d *verts_array;
+	u32 *indices_array;
+	u32 vertex_count;
+	u32 indices_count;
+};
+
+struct engine_render_entry_push_texture
+{
+	u32 width;
+	u32 height;
+	u32 mip_maps_count;
+	memory_index data;
 };
 
 struct engine_render_entry_header
 {
 	engine_render_command_type Type;
-	u32 OffsetsCount; // Currently max _4_
-	u32 Offsets[4]; // Offsets its max data count, that we will be able to pack in a single RenderElement call.
-	u32 Sizes[4];
+	engine_render_entry_push_all_meshes command_push_all_meshes;
+	engine_render_entry_update_camera command_update_camera;
+	engine_render_entry_push_texture command_push_texture;
+	engine_render_entry_text_rect command_text_rect;
+	engine_render_entry_quad command_quad;
 };
 
-struct quaternion
+struct texture_2d
 {
-	f32 Angle;
-	f32 x;
-	f32 y;
-	f32 z;
-};
-
-struct transform
-{
-	v3 Position;
-	v3 Scale;
-	quaternion Rotation;
-	
-	mat4 Matrix;
-};
-
-struct vertex_3d
-{
-	v3 Pos;
-	v3 Color;
-	v2 TexCoord;
-};
-
-struct vertex_2d
-{
-	v2 Pos;
-	v3 Color;
-	v2 TexCoord;
-};
-
-struct game_entity
-{
-	u32 VertexCount;
-	vertex_3d *Vertices;
-	
-	transform Transform;
-	v3 Front;
-	v3 Right;
-	v3 Up;
-	
-	f32 Yaw;
-	f32 Pitch;
-};
-
-struct Camera
-{
-	mat4 ProjectionMatrix;
-	mat4 ViewMatrix;
-};
-
-// TODO(Denis): Finish scene graph
-struct sryr_engine_scene_graph
-{
-	
+	u32 Width;
+	u32 Height;
+	u32 MipMapLevels;
+	memory_index Data;
 };
 
 struct engine_state
 {
+	b32 CloseApp;
 	b32 IsInitialized;
-	memory_chunk EngineMemChunk;
-	memory_chunk TransientMemChunk;
+	memory_arena TransientMemChunk;
+	memory_arena EngineMemChunk;
 	
-	u32 ui_rectangle_count;
-	u32 VerticesCount;
-	vertex_3d *ui_vertices_buffer;
+	memory_arena MaterialsMemoryChunk;
+	memory_arena MeshesMemoryChunk;
+	memory_arena CameraMemoryChunk;
+	memory_arena SceneGraphsMemoryChunk;
+	memory_arena BasicUIMemoryChunk;
+	memory_arena BasicUITextMemoryChunk;
+	//memory_arena TexturesMemoryChunk;
 	
-	u32 IndicesCount;
-	u32 *ui_indices_buffer;
+	styr_camera_state *camera_state_ptr;
+	material_state *mat_state_ptr;
+	meshes_state *mesh_state_ptr;
+	scene_graph_state *scene_graph_state_ptr;
+	basic_ui_state *basic_ui_state_ptr;
+	basic_ui_text_state *basic_ui_text_state_ptr;
 	
-	u32 SceneObjectsCount;
-	game_entity *SceneObjects;
+	game_assets *Assets;
+	engine_render_commands *RenderCommands;
 	
-	game_entity Camera;
-	f32 CameraSpeed;
-	f32 CameraBlend;
-	f32 MaxCameraSpeed;
-	f32 MinCameraSpeed;
+	u32 TextureCount;
+	u32 MaxTextureCount;
+	texture_2d *Textures;
+	
+	u32 *meshes_texture_index;
 };
+
+global_variable platform_api Platform;
+
+inline void push_bitmap(engine_state *EngineState, bitmap_id ID, v3 Position, v4 Color = V4(1, 1, 1, 1));
+inline void push_bitmap(engine_state *EngineState, loaded_bitmap *Bitmap, v3 Position, v4 Color = V4(1, 1, 1, 1));
+internal void draw_ui_text(basic_ui_text_state *state, u32 screen_width, u32 screen_height, v2 Position, f32 Height, u32 Codepoint, v4 Color = V4(1,1,1,1));
 
 internal void EngineUpdateAndRender(game_memory *Memory, game_offscreen_buffer *Buffer);
 

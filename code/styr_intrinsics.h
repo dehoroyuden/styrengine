@@ -8,8 +8,8 @@
   $Notice: (C) Copyright 2021 by Deden DeHo, Inc. All Rights Reserved. $
 ======================================================================*/
 
-#ifndef HANDMADE_DENGINE_INTRINSICS_H
-#define HANDMADE_DENGINE_INTRINSICS_H
+#ifndef STYR_INTRINSICS_H
+#define STYR_INTRINSICS_H
 
 #include "math.h"
 
@@ -157,4 +157,4 @@ FindLeastSignificantSetBit(uint32 Value)
 }
 
 
-#endif //HANDMADE_DENGINE_INTRINSICS_H
+#endif //STYR_INTRINSICS_H

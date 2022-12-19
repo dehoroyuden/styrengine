@@ -35,18 +35,146 @@ global_variable f32 MouseOldPy;
 
 global_variable bool GlobalRunning;
 global_variable bool GlobalPause;
-global_variable win32_offscreen_buffer GlobalBackbuffer;
+//global_variable win32_offscreen_buffer GlobalBackbuffer;
 global_variable s64 GlobalPerfCountFrequency;
 global_variable WINDOWPLACEMENT GlobalWindowPosition =  {sizeof(GlobalWindowPosition)};
 global_variable const s32 MAX_FRAMES_IN_FLIGHT = 2;
 global_variable b32 GlobalFramebufferResized = false;
 global_variable HWND GlobalWindowHandle;
 
-global_variable char *MODEL_PATH = "../data/models/cube.obj";
-global_variable char *TEXTURE_PATH = "../data/textures/ava_20.jpg";
-
 #include "styr_engine.cpp"
 #include "styr_vulkan.cpp"
+
+struct win32_platform_file_handle
+{
+	HANDLE Win32Handle;
+};
+
+struct win32_platform_file_group
+{
+	HANDLE FindHandle;
+	WIN32_FIND_DATAW FindData;
+};
+
+internal PLATFORM_GET_ALL_FILE_OF_TYPE_BEGIN(Win32GetAllFilesOfTypeBegin)
+{
+	platform_file_group Result = {};
+	
+	win32_platform_file_group *Win32FileGroup = (win32_platform_file_group *)VirtualAlloc(0, sizeof(win32_platform_file_group),
+																						  MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+	Result.Platform = Win32FileGroup;
+	
+	wchar_t *WildCard = L"*.*";
+	switch(Type)
+	{
+		case PlatformFileType_AssetFile:
+		{
+			WildCard = L"*.sta";
+		} break;
+		
+		case PlatformFileType_SavedGameFile:
+		{
+			WildCard = L"*.ses";
+		} break;
+		
+		InvalidDefaultCase;
+	}
+	
+	Result.FileCount = 0;
+	
+	WIN32_FIND_DATAW FindData;
+	HANDLE FindHandle = FindFirstFileW(WildCard, &FindData);
+	while(FindHandle != INVALID_HANDLE_VALUE)
+	{
+		++Result.FileCount;
+		
+		if(!FindNextFileW(FindHandle, &FindData))
+		{
+			break;
+		}
+	}
+	
+	FindClose(FindHandle);
+	
+	Win32FileGroup->FindHandle = FindFirstFileW(WildCard, &Win32FileGroup->FindData);
+	
+	FindFirstFileW(WildCard, &FindData);
+	
+	return(Result);
+}
+
+internal PLATFORM_GET_ALL_FILE_OF_TYPE_END(Win32GetAllFilesOfTypeEnd)
+{
+	win32_platform_file_group *Win32FileGroup = (win32_platform_file_group *)FileGroup->Platform;
+	if(Win32FileGroup)
+	{
+		FindClose(Win32FileGroup->FindHandle);
+		
+		VirtualFree(Win32FileGroup, 0, MEM_RELEASE);
+	}
+}
+
+internal PLATFORM_OPEN_FILE(Win32OpenNextFile)
+{
+	win32_platform_file_group *Win32FileGroup = (win32_platform_file_group *)FileGroup->Platform;
+	platform_file_handle Result = {};
+	
+	if(Win32FileGroup->FindHandle != INVALID_HANDLE_VALUE)
+	{
+		// TODO(Denis): If we want, someday, make an actual arena used by Win32
+		win32_platform_file_handle *Win32Handle = (win32_platform_file_handle *)VirtualAlloc(0, sizeof(win32_platform_file_handle), 
+																							 MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+		Result.Platform = Win32Handle;
+		if(Win32Handle)
+		{
+			wchar_t *FileName = Win32FileGroup->FindData.cFileName;
+			Win32Handle->Win32Handle = CreateFileW(FileName, GENERIC_READ, FILE_SHARE_READ, 0,OPEN_EXISTING,0,0);
+			Result.NoErrors = (Win32Handle->Win32Handle != INVALID_HANDLE_VALUE);
+		}
+		
+		if(!FindNextFileW(Win32FileGroup->FindHandle, &Win32FileGroup->FindData))
+		{
+			FindClose(Win32FileGroup->FindHandle);
+			Win32FileGroup->FindHandle = INVALID_HANDLE_VALUE;
+		}
+	}
+	
+	return(Result);
+}
+
+internal PLATFORM_FILE_ERROR(Win32FileError)
+{
+#if HANDMADE_DENGINE_INTERNAL
+	OutputDebugStringA("WIN32 FILE ERROR: ");
+	OutputDebugStringA(Message);
+	OutputDebugStringA("\n");
+#endif
+	Handle->NoErrors = false;
+}
+
+internal PLATFORM_READ_DATA_FROM_FILE(Win32ReadDataFromFile)
+{
+	if(PlatformNoFileErrors(Source))
+	{
+		win32_platform_file_handle *Handle = (win32_platform_file_handle *)Source->Platform;
+		OVERLAPPED Overlapped = {};
+		Overlapped.Offset = (u32)((Offset >> 0) & 0xFFFFFFFF);
+		Overlapped.OffsetHigh = (u32)((Offset >> 32) & 0xFFFFFFFF);
+		
+		u32 FileSize32 = SafeTruncateUInt64(Size);
+		
+		DWORD BytesRead;
+		if(ReadFile(Handle->Win32Handle, Dest, FileSize32, &BytesRead, &Overlapped) && 
+		   (FileSize32 == BytesRead))
+		{
+			// NOTE(Denis): File read succeeded!
+		}
+		else
+		{
+			Win32FileError(Source, "Read file failed.");
+		}
+	}
+}
 
 PLATFORM_ALLOCATE_MEMORY(Win32AllocateMemory)
 {
@@ -60,6 +188,60 @@ PLATFORM_DEALLOCATE_MEMORY(Win32DeallocateMemory)
 	{
 		VirtualFree(Memory, 0, MEM_RELEASE);
 	}
+}
+
+PLATFORM_FREE_FILE_MEMORY(PlatformFreeFileMemory)
+{
+	if(Memory)
+	{
+		VirtualFree(Memory, 0, MEM_RELEASE);
+	}
+}
+
+PLATFORM_READ_ENTIRE_FILE(PlatformReadEntireFile)
+{
+	read_file_result Result = {};
+	
+	HANDLE FileHandle = CreateFileA(Filename,GENERIC_READ,FILE_SHARE_READ, 0,OPEN_EXISTING,0,0);
+	if(FileHandle != INVALID_HANDLE_VALUE)
+	{
+		LARGE_INTEGER FileSize;
+		if(GetFileSizeEx(FileHandle, &FileSize))
+		{
+			uint32 FileSize32 = SafeTruncateUInt64(FileSize.QuadPart);
+			Result.Contents = VirtualAlloc(0,FileSize.QuadPart, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+			if(Result.Contents)
+			{
+				DWORD BytesRead;
+				if(ReadFile(FileHandle, Result.Contents, FileSize32, &BytesRead,0) && 
+				   (FileSize32 == BytesRead))
+				{
+					// NOTE(Denis): File read successfully
+					Result.ContentsSize = FileSize32;
+				}
+				else
+				{
+					PlatformFreeFileMemory(Result.Contents);
+					Result.Contents = 0;
+				}
+			}
+			else
+			{
+				// TODO(Denis): Logging
+			}
+		}
+		else
+		{
+			// TODO(Denis): Logging
+		}
+		CloseHandle(FileHandle);
+	}
+	else
+	{
+		// TODO(Denis): Logging
+	}
+	
+	return(Result);
 }
 
 internal void
@@ -172,13 +354,195 @@ Win32ProcessPendingMessages(win32_state *State, game_controller_input *KeyboardC
 					{
 						Win32ProcessKeyboardMessage(&KeyboardController->Back,IsDown);
 					}
-					else if(VKCode == 'P')
+					else if (VKCode == VK_CONTROL)
 					{
-						if(IsDown)
+						Win32ProcessKeyboardMessage(&KeyboardController->LCtrl, IsDown);
+					}
+					else if (VKCode == VK_LEFT)
+					{
+						Win32ProcessKeyboardMessage(&KeyboardController->ArrowLeft, IsDown);
+					}
+					else if (VKCode == VK_RIGHT)
+					{
+						Win32ProcessKeyboardMessage(&KeyboardController->ArrowRight, IsDown);
+					}
+					else if (VKCode == VK_SHIFT)
+					{
+						Win32ProcessKeyboardMessage(&KeyboardController->LShift, IsDown);
+					}
+					else if (VKCode == VK_BACK)
+					{
+						Win32ProcessKeyboardMessage(&KeyboardController->BackSpace, IsDown);
+					}
+					else if (VKCode == 'R')
+					{
+						Win32ProcessKeyboardMessage(&KeyboardController->ButtonR, IsDown);
+					}
+					else if (VKCode == 'T')
+					{
+						Win32ProcessKeyboardMessage(&KeyboardController->ButtonT, IsDown);
+					}
+					else if (VKCode == 'Y')
+					{
+						Win32ProcessKeyboardMessage(&KeyboardController->ButtonY, IsDown);
+					}
+					else if (VKCode == 'U')
+					{
+						Win32ProcessKeyboardMessage(&KeyboardController->ButtonU, IsDown);
+					}
+					else if (VKCode == 'I')
+					{
+						Win32ProcessKeyboardMessage(&KeyboardController->ButtonI, IsDown);
+					}
+					else if (VKCode == 'O')
+					{
+						Win32ProcessKeyboardMessage(&KeyboardController->ButtonO, IsDown);
+					}
+					else if (VKCode == 'P')
+					{
+						Win32ProcessKeyboardMessage(&KeyboardController->ButtonP, IsDown);
+						/*if (IsDown)
 						{
 							GlobalPause = !GlobalPause;
-						}
+						}*/
 					}
+					else if (VKCode == VK_OEM_4)
+					{
+						Win32ProcessKeyboardMessage(&KeyboardController->Button1afterP, IsDown);
+					}
+					else if (VKCode == VK_OEM_6)
+					{
+						Win32ProcessKeyboardMessage(&KeyboardController->Button2afterP, IsDown);
+					}
+					else if (VKCode == VK_OEM_5)
+					{
+						Win32ProcessKeyboardMessage(&KeyboardController->Button3afterP, IsDown);
+					}
+					else if (VKCode == 'F')
+					{
+						Win32ProcessKeyboardMessage(&KeyboardController->ButtonF, IsDown);
+					}
+					else if (VKCode == 'G')
+					{
+						Win32ProcessKeyboardMessage(&KeyboardController->ButtonG, IsDown);
+					}
+					else if (VKCode == 'H')
+					{
+						Win32ProcessKeyboardMessage(&KeyboardController->ButtonH, IsDown);
+					}
+					else if (VKCode == 'J')
+					{
+						Win32ProcessKeyboardMessage(&KeyboardController->ButtonJ, IsDown);
+					}
+					else if (VKCode == 'K')
+					{
+						Win32ProcessKeyboardMessage(&KeyboardController->ButtonK, IsDown);
+					}
+					else if (VKCode == 'L')
+					{
+						Win32ProcessKeyboardMessage(&KeyboardController->ButtonL, IsDown);
+					}
+					else if (VKCode == VK_OEM_1)
+					{
+						Win32ProcessKeyboardMessage(&KeyboardController->Button1afterL, IsDown);
+					}
+					else if (VKCode == VK_OEM_7)
+					{
+						Win32ProcessKeyboardMessage(&KeyboardController->Button2afterL, IsDown);
+					}
+					else if (VKCode == 'Z')
+					{
+					Win32ProcessKeyboardMessage(&KeyboardController->ButtonZ, IsDown);
+					}
+					else if (VKCode == 'X')
+					{
+					Win32ProcessKeyboardMessage(&KeyboardController->ButtonX, IsDown);
+					}
+					else if (VKCode == 'C')
+					{
+					Win32ProcessKeyboardMessage(&KeyboardController->ButtonC, IsDown);
+					}
+					else if (VKCode == 'V')
+					{
+					Win32ProcessKeyboardMessage(&KeyboardController->ButtonV, IsDown);
+					}
+					else if (VKCode == 'B')
+					{
+					Win32ProcessKeyboardMessage(&KeyboardController->ButtonB, IsDown);
+					}
+					else if (VKCode == 'N')
+					{
+						Win32ProcessKeyboardMessage(&KeyboardController->ButtonN, IsDown);
+					}
+					else if (VKCode == 'M')
+					{
+						Win32ProcessKeyboardMessage(&KeyboardController->ButtonM, IsDown);
+					}
+					else if (VKCode == VK_OEM_COMMA)
+					{
+						Win32ProcessKeyboardMessage(&KeyboardController->Button1afterM, IsDown);
+					}
+					else if (VKCode == VK_OEM_PERIOD)
+					{
+						Win32ProcessKeyboardMessage(&KeyboardController->Button2afterM, IsDown);
+					}
+					else if (VKCode == VK_OEM_2)
+					{
+						Win32ProcessKeyboardMessage(&KeyboardController->Button3afterM, IsDown);
+					}
+					else if (VKCode == '1')
+					{
+					Win32ProcessKeyboardMessage(&KeyboardController->Button1, IsDown);
+					}
+					else if (VKCode == '2')
+					{
+					Win32ProcessKeyboardMessage(&KeyboardController->Button2, IsDown);
+					}
+					else if (VKCode == '3')
+					{
+					Win32ProcessKeyboardMessage(&KeyboardController->Button3, IsDown);
+					}
+					else if (VKCode == '4')
+					{
+					Win32ProcessKeyboardMessage(&KeyboardController->Button4, IsDown);
+					}
+					else if (VKCode == '5')
+					{
+					Win32ProcessKeyboardMessage(&KeyboardController->Button5, IsDown);
+					}
+					else if (VKCode == '6')
+					{
+					Win32ProcessKeyboardMessage(&KeyboardController->Button6, IsDown);
+					}
+					else if (VKCode == '7')
+					{
+					Win32ProcessKeyboardMessage(&KeyboardController->Button7, IsDown);
+					}
+					else if (VKCode == '8')
+					{
+					Win32ProcessKeyboardMessage(&KeyboardController->Button8, IsDown);
+					}
+					else if (VKCode == '9')
+					{
+					Win32ProcessKeyboardMessage(&KeyboardController->Button9, IsDown);
+					}
+					else if (VKCode == '0')
+					{
+					Win32ProcessKeyboardMessage(&KeyboardController->Button0, IsDown);
+					}
+					else if (VKCode == VK_OEM_MINUS)
+					{
+					Win32ProcessKeyboardMessage(&KeyboardController->Button1after0, IsDown);
+					}
+					else if (VKCode == VK_OEM_PLUS)
+					{
+					Win32ProcessKeyboardMessage(&KeyboardController->Button2after0, IsDown);
+					}
+					else if (VKCode == VK_SPACE)
+					{
+					Win32ProcessKeyboardMessage(&KeyboardController->ButtonSpace, IsDown);
+					}
+					
 					
 					if(IsDown)
 					{
@@ -324,270 +688,6 @@ PLATFORM_ASSIGN_STYR_STRING(styr_string_create)
 	return Result;
 }
 
-internal u32
-FindVsCount(char *Symbols)
-{
-	u32 Result = 0;
-	if(Symbols[0] == 'v' &&
-	   (IsWhitespace(Symbols[1])))
-	{
-		return FindVsCount(++Symbols) + 1;
-	} 
-	else if(Symbols[0] != '\0')
-	{
-		return FindVsCount(++Symbols);
-	}
-	
-	return 0;
-}
-
-struct HashVertex
-{
-	u32 HashValue;
-	u32 Count;
-	u32 Index;
-};
-
-// TODO(Denis): Write better hash function
-inline u32 
-CreateHashValue(vertex_3d Vert)
-{
-	u32 Result = 0;
-	char Buffer[64];
-	s32 P = 31;
-	u32 M = (u32)(1e9 + 9);
-	u32 P_pow = 1;
-	
-	_snprintf_s(Buffer, sizeof(Buffer), "%f%f%f%f%f",
-				Vert.Pos.x, Vert.Pos.y, Vert.Pos.z, Vert.TexCoord.x, Vert.TexCoord.y);
-	
-	for(u32 CharacterIndex = 0;
-		CharacterIndex < ArrayCount(Buffer);
-		++CharacterIndex)
-	{
-		Result = (Result + (Buffer[CharacterIndex] - 'a' + 1) * P_pow) % M;
-		P_pow = (P_pow * P) % M;
-	}
-	
-	return Result;
-}
-
-inline u32
-FindVertexByHash(u32 HashValue, HashVertex *HashVertices, u32 HashVerticesCount)
-{
-	u32 Result = 0;
-	
-	for(u32 Index = 0;
-		Index < HashVerticesCount;
-		++Index)
-	{
-		if(HashVertices[Index].HashValue == HashValue)
-		{
-			Result = Index;
-			break;
-		}
-	}
-	
-	return Result;
-}
-
-inline u32
-FindVerticesCountByHashValue(u32 HashValue, HashVertex *HashVertices, u32 HashVerticesCount)
-{
-	u32 Result = 0;
-	
-	for(u32 Index = 0;
-		Index < HashVerticesCount;
-		++Index)
-	{
-		if(HashVertices[Index].HashValue == HashValue)
-		{
-			++Result;
-		}
-	}
-	
-	return Result;
-}
-
-inline u32
-FindUniqueVerticesCount(HashVertex *HashVertices, u32 HashVerticesCount)
-{
-	u32 Result = 0;
-	
-	for(u32 Index = 0;
-		Index < HashVerticesCount;
-		++Index)
-	{
-		u32 VertexRepeatedCount = FindVerticesCountByHashValue(HashVertices[Index].HashValue, HashVertices, HashVerticesCount);
-		if(VertexRepeatedCount == 1)
-		{
-			++Result;
-		}
-	}
-	
-	return Result;
-}
-
-internal b32
-LoadObjOptimized(char* Filepath, win32_styr_array* OutVertices, win32_styr_array* OutUVs, win32_styr_array* OutNormals, win32_styr_array* OutIndices, memory_chunk* TranArena)
-{
-	ObjectData Data = CreateTheObject(Filepath);
-	retval vertexdata = GetVertexArray(Data.ObjectData, 0);
-	retval texturedata = GetTextureArray(Data.ObjectData, 0);
-	
-	chunk_temporary_memory TempMemory = BeginTemporaryMemory(TranArena);
-	
-	u32 VertexIndicesCount = vertexdata.count_o_vals / 3;
-	
-	initialize_array(*OutVertices, TranArena, (vertexdata.count_o_vals / 3), vertex_3d);
-	initialize_array(*OutIndices, TranArena, (vertexdata.count_o_vals / 3), u32);
-	
-	// NOTE(Denis): Hash all the values from vertices array into hashes array
-	HashVertex* Hashes = (HashVertex*)PushArray(TranArena, VertexIndicesCount, HashVertex);
-	
-	VertexIndicesCount = 0;
-	
-	vertex_3d* Vertices = (vertex_3d*)OutVertices->Data;
-	u32* Indices = (u32*)OutIndices->Data;
-	
-	u32 TexCoordIndex = 0;
-	for (int i = 0; i < vertexdata.count_o_vals / 3; i++) 
-	{
-		vertex_3d Vert = {};
-		Vert.Pos =
-		{
-			vertexdata.values[3 * i + 0],
-			vertexdata.values[3 * i + 1],
-			vertexdata.values[3 * i + 2]
-		};
-		
-		Vert.TexCoord =
-		{
-			texturedata.values[2 * TexCoordIndex + 0],
-			1.0f - texturedata.values[2 * TexCoordIndex + 1]
-		};
-		
-		Vert.Color = { 1.0f, 1.0f, 1.0f };
-		
-		Hashes[VertexIndicesCount].HashValue = CreateHashValue(Vert);
-		++VertexIndicesCount;
-		++TexCoordIndex;
-	}
-	
-	TexCoordIndex = 0;
-	u32 VerticesCount = VertexIndicesCount;
-	u32 UniqueIndex = 0;
-	u32 VertexIndex = 0;
-	
-	for (int i = 0; i < vertexdata.count_o_vals / 3; i++) 
-	{
-		vertex_3d Vert = {};
-		{
-			Vert.Pos =
-			{
-				vertexdata.values[3 * i + 0],
-				vertexdata.values[3 * i + 1],
-				vertexdata.values[3 * i + 2]
-			};
-			
-			Vert.TexCoord =
-			{
-				texturedata.values[2 * TexCoordIndex + 0],
-				1.0f - texturedata.values[2 * TexCoordIndex + 1]
-			};
-			
-			Vert.Color = { 1.0f, 1.0f, 1.0f };
-		}
-		
-		u32 HashValue = CreateHashValue(Vert);
-		u32 HashValueIndex = FindVertexByHash(HashValue, Hashes, VertexIndicesCount);
-		u32 HashValueVertexCount = Hashes[HashValueIndex].Count;
-		
-		if (HashValueVertexCount == 0)
-		{
-			push_array_element_at_index(OutVertices, UniqueIndex, Vert, vertex_3d);
-			Hashes[HashValueIndex].Index = UniqueIndex;
-			++Hashes[HashValueIndex].Count;
-			++UniqueIndex;
-		}
-		
-		Indices[VertexIndex] = Hashes[HashValueIndex].Index;
-		++VertexIndex;
-		++TexCoordIndex;
-	}
-	
-	EndTemporaryMemory(TempMemory);
-	
-	vertex_3d* ActualVerticesInUse = PushArray(TranArena, UniqueIndex, vertex_3d, AlignNoClear(4));
-	OutVertices->Count = UniqueIndex;
-	OutVertices->Data = ActualVerticesInUse;
-	
-	return true;
-}
-
-internal b32
-LoadObjNonOptimized(char* Filepath, win32_styr_array* OutVertices, win32_styr_array* OutUVs, win32_styr_array* OutNormals, win32_styr_array* OutIndices, memory_chunk* TranArena)
-{
-	ObjectData Data = CreateTheObject(Filepath);
-	retval vertexdata = GetVertexArray(Data.ObjectData, 0);
-	retval texturedata = GetTextureArray(Data.ObjectData, 0);
-	
-	initialize_array(*OutVertices, TranArena, (vertexdata.count_o_vals / 3), vertex_3d);
-	initialize_array(*OutIndices, TranArena, (vertexdata.count_o_vals / 3), u32);
-	
-	vertex_3d* Vertices = get_array_pointer(*OutVertices, vertex_3d);
-	u32* Indices = get_array_pointer(*OutIndices , u32);
-	
-	u32 VertexIndex = 0;
-	for (int i = 0; i < vertexdata.count_o_vals; i += 3) {
-		vertex_3d Vert = {};
-		{
-			Vert.Pos =
-			{
-				vertexdata.values[i],
-				vertexdata.values[i + 1],
-				vertexdata.values[i + 2]
-			};
-			
-			Vert.Color = { 1.0f, 1.0f, 1.0f };
-		}
-		Vertices[VertexIndex] = Vert;
-		++VertexIndex;
-	}
-	
-	VertexIndex = 0;
-	for (int i = 0;i < vertexdata.count_o_vals / 3;i++) {
-		Indices[VertexIndex] = VertexIndex;
-		++VertexIndex;
-	}
-	
-	for (int i = 0, j = 0; i < texturedata.count_o_vals;i += 2, j++) {
-		Vertices[j].TexCoord = {
-			texturedata.values[i],
-			1.0f-texturedata.values[i+1]
-		};
-	}
-	
-	return true;
-}
-
-internal void
-LoadModel(win32_styr_array *OutVerts, win32_styr_array *OutIndices, memory_chunk *TranArena)
-{
-	// TODO(Denis): Use these functions for separation
-	// of Normals and UVs
-	
-	win32_styr_array Normals = {};
-	win32_styr_array UVs = {};
-	
-#if STYR_LOAD_MODEL_OPTIMIZED
-	LoadObjOptimized(MODEL_PATH, OutVerts, &UVs, &Normals, OutIndices, TranArena);
-#else
-	LoadObjNonOptimized(MODEL_PATH, OutVerts, &UVs, &Normals, OutIndices, TranArena);
-#endif
-	
-}
-
 int WinMain(HINSTANCE Instance,
 			HINSTANCE PrevInstance,
 			LPSTR CommandLine,
@@ -621,13 +721,14 @@ int WinMain(HINSTANCE Instance,
 	
 	GlobalRunning = true;
 	
+#if 0
 	Win32ResizeDIBSection(&GlobalBackbuffer,800,600);
-	
 	game_offscreen_buffer GameBuffer = {};
 	GameBuffer.Memory = &GlobalBackbuffer.Memory;
 	GameBuffer.Width = GlobalBackbuffer.Width;
 	GameBuffer.Height = GlobalBackbuffer.Height;
 	GameBuffer.Pitch = GlobalBackbuffer.Pitch;
+#endif
 	
 	WNDCLASSA WindowClass = {};
 	WindowClass.style = CS_HREDRAW|CS_VREDRAW|CS_OWNDC;
@@ -670,7 +771,7 @@ int WinMain(HINSTANCE Instance,
 #endif
 			GlobalWindowHandle = Window;
 			
-			s32 MonitorRefreshHz = 60;
+			s32 MonitorRefreshHz = 120;
 			HDC RefreshDC = GetDC(Window);
 #if 0
 			s32 Win32RefreshRate = GetDeviceCaps(RefreshDC, VREFRESH);
@@ -694,13 +795,20 @@ int WinMain(HINSTANCE Instance,
 			LPVOID BaseAddress = 0;
 #endif
 			
-			// Win32 Layer Memory Arena
+			// Win32 Layer memory chunk
 			win32_transient_state Win32TranState = {};
 			Win32TranState.StorageSize = Megabytes(256);
 			
+			// Game engine memory chunk
 			game_memory GameMemory = {};
-			GameMemory.PermanentStorageSize = Megabytes(5);
-			GameMemory.TransientStorageSize = Megabytes(5);//Gigabytes(1);
+			GameMemory.PermanentStorageSize = Megabytes(32);
+			GameMemory.TransientStorageSize = Megabytes(256);//Gigabytes(1);
+			
+			GameMemory.PlatformAPI.GetAllFilesOfTypeBegin = Win32GetAllFilesOfTypeBegin;
+			GameMemory.PlatformAPI.GetAllFilesOfTypeEnd = Win32GetAllFilesOfTypeEnd;
+			GameMemory.PlatformAPI.OpenNextFile = Win32OpenNextFile;
+			GameMemory.PlatformAPI.ReadDataFromFile = Win32ReadDataFromFile;
+			GameMemory.PlatformAPI.FileError = Win32FileError;
 			
 			GameMemory.PlatformAPI.AllocateMemory = Win32AllocateMemory;
 			GameMemory.PlatformAPI.DeallocateMemory = Win32DeallocateMemory;
@@ -720,9 +828,9 @@ int WinMain(HINSTANCE Instance,
 			
 			// Win 32 Storage Initialization
 			Assert(sizeof(win32_transient_state) <= Win32TranState.StorageSize);
-			memory_chunk *TranArena = (memory_chunk *)Win32TranState.Storage;
-			InitializeArena(TranArena, Win32TranState.StorageSize - sizeof(memory_chunk),
-							(u8 *)Win32TranState.Storage + sizeof(memory_chunk));
+			memory_arena *TranArena = (memory_arena *)Win32TranState.Storage;
+			InitializeArena(TranArena, Win32TranState.StorageSize - sizeof(memory_arena),
+							(u8 *)Win32TranState.Storage + sizeof(memory_arena));
 			
 			// VULKAN Initialization
 			//
@@ -750,6 +858,7 @@ int WinMain(HINSTANCE Instance,
 			VkExtent2D SwapChainExtent = {};
 			VkFormat SwapChainImageFormat = {};
 			VkPipelineLayout world_pipeline_layout = {};
+			VkPipelineLayout infinine_grid_pipeline_layout = {};
 			VkPipelineLayout ui_pipeline_layout = {};
 			VkDescriptorSetLayout DescriptorSetLayout = {};
 			VkDescriptorPool DescriptorPool = {};
@@ -757,16 +866,33 @@ int WinMain(HINSTANCE Instance,
 			VkImage SwapChainImages[3];
 			VkFramebuffer world_framebuffers[3];
 			VkFramebuffer swap_chain_framebuffers[3];
-			VkDescriptorSet *DescriptorSets = 0;
-			VkBuffer *UniformBuffers = 0;
-			VkDeviceMemory *UniformBuffersMemory = 0;
+			VkDescriptorSet *world_descriptor_sets = {};
+			u32 max_material_count = MaterialType_Count;
+			u32 world_descriptor_set_count = max_material_count * MAX_FRAMES_IN_FLIGHT;
+			VkDescriptorSet *ui_DescriptorSets = 0;
+			VkDescriptorPool ui_DescriptorPool = 0;
+			u32 max_world_model_count = 1024;
+			u32 models_count_in_use = 0;
+			vulkan_buffer WorldVertexBuffer = {};
+			vulkan_buffer WorldIndexBuffer = {};
+			vulkan_buffer UniformBuffer = {};
+			u32 *world_vertices_offsets = {};
+			u32 *world_indices_offsets = {};
+			u32 max_material_pipelines = MaterialType_Count;
+			VkPipeline material_pipelines[MaterialType_Count];
 			
 			u32 MipLevels = 0;
-			VkImage TextureImage = {};
-			VkBuffer TextureImageBuffer = {};
-			VkDeviceMemory TextureImageBufferMemory = {};
-			VkDeviceMemory TextureImageMemory = {};
-			VkImageView TextureImageView = {};
+			u32 TextureImageCount = 0;
+			u32 MaxTextureImages = 32;
+			// NOTE(Denis): This is the array of indices for textures to match
+			// properly objects that being rendered (because we may create entities
+			// in different order than we create and push to GPU meshes)!!!
+			u32 *entity_texture_indices = nullptr;
+			VkImage TextureImages[32];
+			VkBuffer TextureImageBuffers[32] = {};
+			VkDeviceMemory TextureImageBufferMemories[32] = {};
+			VkDeviceMemory TextureImageMemories[32];
+			VkImageView TextureImageViews[32];
 			VkSampler TextureSampler = {};
 			
 			VkImage DepthImage = {};
@@ -805,8 +931,8 @@ int WinMain(HINSTANCE Instance,
 			CreateInfo.enabledExtensionCount = ArrayCount(Extensions);
 			CreateInfo.ppEnabledExtensionNames = Extensions;
 			
-			CreateInfo.enabledLayerCount = 1;
 #if STYR_VULKAN_VALIDATION
+			CreateInfo.enabledLayerCount = 1;
 #else
 			CreateInfo.enabledLayerCount = 0;
 #endif
@@ -890,10 +1016,8 @@ int WinMain(HINSTANCE Instance,
 			
 			VkCommandBuffer CommandBuffersWorld[MAX_FRAMES_IN_FLIGHT];
 			VkCommandBuffer CommandBuffersUI[MAX_FRAMES_IN_FLIGHT];
+			VkCommandBuffer CommandBuffers_ui_text[MAX_FRAMES_IN_FLIGHT];
 			
-			VkPipeline WorldPipeline = vk_CreatePipeline(LogicalDevice, WorldRenderPass, SwapChainExtent,MSAA_Samples, &world_pipeline_layout, &DescriptorSetLayout, false);
-			
-			VkPipeline UIPipeline = vk_CreatePipeline(LogicalDevice, UIRenderPass, SwapChainExtent, MSAA_Samples, &ui_pipeline_layout, &DescriptorSetLayout, true);
 			//
 			//
 			// End of Render Pases
@@ -904,78 +1028,50 @@ int WinMain(HINSTANCE Instance,
 			
 			// Command pools
 			VkCommandPool CommandPool = {};
-			VkCommandPoolCreateInfo PoolInfo = {};
-			PoolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-			PoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-			PoolInfo.queueFamilyIndex = QueueIndices.GraphicsFamily;
-			
-			ShowVulkanResult(vkCreateCommandPool(LogicalDevice, &PoolInfo, 0, &CommandPool), "Command Pool Created : %s");
+			VkCommandPoolCreateInfo CommandPoolInfo = {};
+			CommandPoolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+			CommandPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+			CommandPoolInfo.queueFamilyIndex = QueueIndices.GraphicsFamily;
+			ShowVulkanResult(vkCreateCommandPool(LogicalDevice, &CommandPoolInfo, 0, &CommandPool), "Command Pool Created : %s");
 			// End of Command pools
 			
 			vk_CreateColorResources(PhysicalDevice, LogicalDevice, &CommandPool, GraphicQueue, SwapChainExtent, &ColorImage, &ColorImageMemory, &ColorImageView, SwapChainImageFormat, MipLevels, MSAA_Samples);
 			
-			vk_CreateDepthResources(PhysicalDevice, LogicalDevice, &CommandPool, GraphicQueue, SwapChainExtent, &TextureImage, &TextureImageMemory, &DepthImageView, MSAA_Samples);
+			vk_CreateDepthResources(PhysicalDevice, LogicalDevice, &CommandPool, GraphicQueue, SwapChainExtent, &TextureImages[TextureImageCount], &TextureImageMemories[TextureImageCount], &DepthImageView, MSAA_Samples);
 			
 			vk_CreateFramebuffers(LogicalDevice, SwapChainImageViews, ArrayCount(SwapChainImageViews), DepthImageView, ColorImageView, SwapChainExtent, WorldRenderPass, UIRenderPass, world_framebuffers, swap_chain_framebuffers);
 			
-			// Image textures creation
-			vk_CreateTextureImage(&TextureImage, &TextureImageMemory, PhysicalDevice, LogicalDevice, CommandPool, GraphicQueue, &TextureImageBuffer, &TextureImageBufferMemory, MipLevels);
 			
-			TextureImageView = vk_CreateImageView(LogicalDevice, TextureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT, MipLevels);
+			// NOTE(Denis): Create UI buffers
+			u32 ui_vertices_count = 4 * 512;
+			u32 ui_indices_count = (ui_vertices_count / 4) * 6;
+			vulkan_buffer ui_vertex_buffer = vk_initialize_buffer(TranArena, ui_vertices_count);
+			vulkan_buffer ui_index_buffer = vk_initialize_buffer(TranArena, ui_indices_count);
 			
-			vk_CreateTextureSampler(PhysicalDevice, LogicalDevice, TextureSampler, MipLevels);
-			
-			// End of Image textures creation
-			
-			win32_styr_array VerticesArray = {};
-			win32_styr_array IndicesArray = {};
-			LoadModel(&VerticesArray, &IndicesArray, TranArena);
-			
-			// Create Vertex Buffer
-			VkBuffer VertexBuffer = {};
-			VkDeviceMemory VertexBufferMemory = {};
-			
-			u32 VerticesCount = VerticesArray.Count;
-			vk_CreateVertexBuffer(&CommandPool, GraphicQueue, VertexBuffer, &VertexBufferMemory, PhysicalDevice, LogicalDevice, VerticesArray.Data, sizeof(vertex_3d), VerticesArray.Count);
-			// End of Create Vertex Buffer
-			
-			// Create Index Buffer
-			VkBuffer IndexBuffer = {};
-			VkDeviceMemory IndexBufferMemory = {};
-			
-			u32 IndicesCount = IndicesArray.Count;
-			vk_CreateIndexBuffer(&CommandPool, GraphicQueue, IndexBuffer, &IndexBufferMemory, PhysicalDevice,LogicalDevice, get_array_pointer(IndicesArray, u32), IndicesCount);
-			// End of Create Index Buffer
-			
-			VkBuffer ui_vertex_buffer = {};
-			VkBuffer ui_index_buffer = {};
-			VkDeviceMemory ui_vertex_buffer_memory = {};
-			VkDeviceMemory ui_index_buffer_memory = {};
-			u32 indices_and_vertices_count = 64;
-			
-			//vertex_3d Verts[2048];
-			//vk_CreateVertexBuffer(&CommandPool, GraphicQueue, ui_vertex_buffer, &ui_vertex_buffer_memory, PhysicalDevice, LogicalDevice, Verts, sizeof(vertex_3d), indices_and_vertices_count);
-			u32 BufferSize = indices_and_vertices_count * sizeof(vertex_3d);
+			u32 BufferSize = ui_vertices_count * sizeof(vertex_3d);
 			vk_CreateBuffer(PhysicalDevice, LogicalDevice, BufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, 
-							VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, &ui_vertex_buffer, &ui_vertex_buffer_memory);
+							VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, ui_vertex_buffer.data, ui_vertex_buffer.memory);
 			
-			//u32 Indices[2048];
-			//vk_CreateIndexBuffer(&CommandPool, GraphicQueue, ui_index_buffer, &ui_index_buffer_memory, PhysicalDevice,LogicalDevice, Indices, indices_and_vertices_count);
-			BufferSize = indices_and_vertices_count * sizeof(u32);
+			BufferSize = ui_indices_count * sizeof(u32);
 			vk_CreateBuffer(PhysicalDevice, LogicalDevice, BufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, 
-							VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, &ui_index_buffer, &ui_index_buffer_memory);
+							VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, ui_index_buffer.data, ui_index_buffer.memory);
 			
-			// Create Uniform Buffer
-			UniformBuffers = PushArray(TranArena, MAX_FRAMES_IN_FLIGHT, VkBuffer);
-			UniformBuffersMemory = PushArray(TranArena, MAX_FRAMES_IN_FLIGHT, VkDeviceMemory);
-			vk_CreateUniformBuffers(TranArena, PhysicalDevice, LogicalDevice, UniformBuffers, UniformBuffersMemory);
-			// End of Create Uniform Buffer
+			VkBuffer ui_text_vertex_buffer = {};
+			VkBuffer ui_text_index_buffer = {};
 			
-			// Create Descriptor Pool
-			DescriptorSets = PushArray(TranArena, MAX_FRAMES_IN_FLIGHT, VkDescriptorSet);
-			vk_CreateDescriptorPool(LogicalDevice, &DescriptorPool);
-			vk_CreateDescriptorSets(TranArena, LogicalDevice, UniformBuffers, &DescriptorPool, DescriptorSets, DescriptorSetLayout, TextureImageView, TextureSampler);
-			// End of Create Descriptor Pool
+			VkDeviceMemory ui_text_vertex_buffer_memory = {};
+			VkDeviceMemory ui_text_index_buffer_memory = {};
+			
+			u32 text_ui_vertices_count = 4 * 16384;
+			u32 text_indices_count = (text_ui_vertices_count / 4) * 6;
+			
+			BufferSize = text_ui_vertices_count * sizeof(vertex_3d);
+			vk_CreateBuffer(PhysicalDevice, LogicalDevice, BufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, 
+							VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, &ui_text_vertex_buffer, &ui_text_vertex_buffer_memory);
+			
+			BufferSize = text_indices_count * sizeof(u32);
+			vk_CreateBuffer(PhysicalDevice, LogicalDevice, BufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, 
+							VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, &ui_text_index_buffer, &ui_text_index_buffer_memory);
 			
 			// Command buffer allocation
 			VkCommandBufferAllocateInfo CommandBufferInfo = {};
@@ -984,9 +1080,11 @@ int WinMain(HINSTANCE Instance,
 			CommandBufferInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 			CommandBufferInfo.commandBufferCount = ArrayCount(CommandBuffersWorld);
 			ShowVulkanResult(vkAllocateCommandBuffers(LogicalDevice, &CommandBufferInfo, CommandBuffersWorld), "Command Buffer Created : %s");
-			
 			CommandBufferInfo.commandBufferCount = ArrayCount(CommandBuffersUI);
 			ShowVulkanResult(vkAllocateCommandBuffers(LogicalDevice, &CommandBufferInfo, CommandBuffersUI), "Command Buffer Created : %s");
+			
+			CommandBufferInfo.commandBufferCount = ArrayCount(CommandBuffers_ui_text);
+			ShowVulkanResult(vkAllocateCommandBuffers(LogicalDevice, &CommandBufferInfo, CommandBuffers_ui_text), "Command Buffer Created : %s");
 			// End of Command buffer allocation
 			
 			u32 ImageIndex = 0; // TODO(Denis): This later will be an argument to our function which image buffer to use
@@ -1013,16 +1111,269 @@ int WinMain(HINSTANCE Instance,
 				PrintMessage(IsSemaphoreAndFencesCreated, IsSemaphoreAndFencesCreated ? "Semaphores and Fences created : VK_SUCCESS\n" : "Semaphores and Fences created : VK_SUCCESS\n");
 			}
 			
-			//
-			//
-			// End of VULKAN Initialization
+			vk_CreateTextureSampler(PhysicalDevice, LogicalDevice, TextureSampler, MipLevels);
 			
 			u32 EngineCommandsBufferSize = Megabytes(1);
 			void *EngineRenderCommandsBufferBase = Win32AllocateMemory(EngineCommandsBufferSize);
 			engine_render_commands EngineRenderCommands = {&SwapChainExtent.width, &SwapChainExtent.height, EngineCommandsBufferSize, 0, (u8 *)EngineRenderCommandsBufferBase, 0};
 			
+			// TODO(Denis): Delete this temporary solution and make proper calls from engine update!!!
+			EngineInitializeAtStart(&GameMemory, NewInput, &EngineRenderCommands);
+			
+			read_file_result VertexFile = {};
+			read_file_result FragmentFile = {};
+			
+			VertexFile = PlatformReadEntireFile("shaders/simple_shader_vert.spv");
+			FragmentFile = PlatformReadEntireFile("shaders/simple_shader_frag.spv");
+			material_pipelines[MaterialType_Default] = vk_CreatePipeline(LogicalDevice, WorldRenderPass, SwapChainExtent, MSAA_Samples, &world_pipeline_layout, &DescriptorSetLayout, VertexFile, FragmentFile, false);;
+			
+			VertexFile = PlatformReadEntireFile("shaders/ui_vert.spv");
+			FragmentFile = PlatformReadEntireFile("shaders/ui_frag.spv");
+			material_pipelines[MaterialType_UI] = vk_CreatePipeline(LogicalDevice, UIRenderPass, SwapChainExtent, MSAA_Samples, &ui_pipeline_layout, &DescriptorSetLayout, VertexFile, FragmentFile,true);
+			
+			VertexFile = PlatformReadEntireFile("shaders/ui_text_vert.spv");
+			FragmentFile = PlatformReadEntireFile("shaders/ui_text_frag.spv");
+			material_pipelines[MaterialType_UIText] = vk_CreatePipeline(LogicalDevice, UIRenderPass, SwapChainExtent, MSAA_Samples, &ui_pipeline_layout, &DescriptorSetLayout, VertexFile, FragmentFile,true);
+			
+			VertexFile = PlatformReadEntireFile("shaders/infinite_grid_vert.spv");
+			FragmentFile = PlatformReadEntireFile("shaders/infinite_grid_frag.spv");
+			material_pipelines[MaterialType_WorldGrid] = vk_CreatePipeline(LogicalDevice, WorldRenderPass, SwapChainExtent, MSAA_Samples, &world_pipeline_layout, &DescriptorSetLayout, VertexFile, FragmentFile, false);
+			
+			PlatformFreeFileMemory(VertexFile.Contents);
+			PlatformFreeFileMemory(FragmentFile.Contents);
+			
+			// Create Descriptor Pool
+			{
+				VkDescriptorPoolSize DescriptorPoolSizes[2] = {{},{}};
+				DescriptorPoolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+				DescriptorPoolSizes[0].descriptorCount = world_descriptor_set_count;
+				DescriptorPoolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+				DescriptorPoolSizes[1].descriptorCount = world_descriptor_set_count;
+				
+				VkDescriptorPoolCreateInfo DescriptorPoolInfo = {};
+				DescriptorPoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+				DescriptorPoolInfo.poolSizeCount = ArrayCount(DescriptorPoolSizes);
+				DescriptorPoolInfo.pPoolSizes = DescriptorPoolSizes;
+				DescriptorPoolInfo.maxSets = world_descriptor_set_count;
+				
+				b32 IsDescriptorPoolCreated = false;
+				IsDescriptorPoolCreated = (vkCreateDescriptorPool(LogicalDevice, &DescriptorPoolInfo, 0, &DescriptorPool) == VK_SUCCESS);
+				Assert(IsDescriptorPoolCreated);
+			}
+			// End of Create Descriptor Pool
+			
+			// Create world descriptor set
+			{
+				world_descriptor_sets = PushArray(TranArena, world_descriptor_set_count, VkDescriptorSet);
+				
+				// Create Descriptor Sets
+				VkDescriptorSetLayout *Layouts = PushArray(TranArena, world_descriptor_set_count, VkDescriptorSetLayout);
+				for(u32 i = 0; i < world_descriptor_set_count; ++i)
+				{
+					Layouts[i] = DescriptorSetLayout;
+				}
+				
+				VkDescriptorSetAllocateInfo AllocInfo = {};
+				AllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+				AllocInfo.descriptorPool = DescriptorPool;
+				AllocInfo.descriptorSetCount = world_descriptor_set_count;
+				AllocInfo.pSetLayouts = Layouts;
+				
+				b32 IsDescriptorSetAllocated = false;
+				IsDescriptorSetAllocated = (vkAllocateDescriptorSets(LogicalDevice, &AllocInfo, world_descriptor_sets) == VK_SUCCESS);
+				Assert(IsDescriptorSetAllocated);
+			}
+			
+			// Create UI Descriptor Pool
+			{
+				VkDescriptorPoolSize DescriptorPoolSizes[2] = {{},{}};
+				DescriptorPoolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+				DescriptorPoolSizes[0].descriptorCount = MAX_FRAMES_IN_FLIGHT;
+				DescriptorPoolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+				DescriptorPoolSizes[1].descriptorCount = MAX_FRAMES_IN_FLIGHT;
+				
+				VkDescriptorPoolCreateInfo DescriptorPoolInfo = {};
+				DescriptorPoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+				DescriptorPoolInfo.poolSizeCount = ArrayCount(DescriptorPoolSizes);
+				DescriptorPoolInfo.pPoolSizes = DescriptorPoolSizes;
+				DescriptorPoolInfo.maxSets = MAX_FRAMES_IN_FLIGHT;
+				
+				b32 IsDescriptorPoolCreated = false;
+				IsDescriptorPoolCreated = (vkCreateDescriptorPool(LogicalDevice, &DescriptorPoolInfo, 0, &ui_DescriptorPool) == VK_SUCCESS);
+				Assert(IsDescriptorPoolCreated);
+			}
+			// End of Create Descriptor Pool
+			
+			// Create UI Descriptor Sets
+			if(!ui_DescriptorSets)
+			{
+				ui_DescriptorSets = PushArray(TranArena, MAX_FRAMES_IN_FLIGHT, VkDescriptorSet);
+				
+				VkDescriptorSetLayout Layouts[MAX_FRAMES_IN_FLIGHT];
+				Layouts[0] = DescriptorSetLayout;
+				Layouts[1] = DescriptorSetLayout;
+				VkDescriptorSetAllocateInfo AllocInfo = {};
+				AllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+				AllocInfo.descriptorPool = ui_DescriptorPool;
+				AllocInfo.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
+				AllocInfo.pSetLayouts = Layouts;
+				
+				b32 IsDescriptorSetAllocated = false;
+				IsDescriptorSetAllocated = (vkAllocateDescriptorSets(LogicalDevice, &AllocInfo, ui_DescriptorSets) == VK_SUCCESS);
+				Assert(IsDescriptorSetAllocated);
+			}
+			
+			engine_render_commands Commands = EngineRenderCommands;
+			engine_render_entry_header *Header = 0;
+			u32 offset = 0;
+			for(u32 index = 0;
+				index < Commands.CommandBufferElementCount;
+				index++)
+			{
+				Header = (engine_render_entry_header *)(Commands.CommandBufferBase + offset);
+				
+				switch(Header->Type)
+				{
+					case EngineRenderCommandType_PushAllMeshes:
+					{
+						void *vertex_data = (void *)Header->command_push_all_meshes.vertices;
+						u32 vertex_count = Header->command_push_all_meshes.vertex_count;
+						WorldVertexBuffer = vk_initialize_buffer(TranArena, vertex_count);
+						
+						vk_CreateVertexBuffer(&CommandPool, GraphicQueue, *WorldVertexBuffer.data, WorldVertexBuffer.memory, PhysicalDevice, LogicalDevice, vertex_data, sizeof(vertex_3d), vertex_count);
+						
+						void *index_data = (void *)Header->command_push_all_meshes.indices;
+						u32 indices_count = Header->command_push_all_meshes.index_count;
+						WorldIndexBuffer = vk_initialize_buffer(TranArena, indices_count);
+						
+						vk_CreateIndexBuffer(&CommandPool, GraphicQueue, *WorldIndexBuffer.data, WorldIndexBuffer.memory, PhysicalDevice, LogicalDevice, index_data, sizeof(u32), indices_count);
+						
+						models_count_in_use = Header->command_push_all_meshes.mesh_entry_offsets_count;
+						world_vertices_offsets = PushArray(TranArena, models_count_in_use, u32);
+						world_indices_offsets = PushArray(TranArena, models_count_in_use, u32);
+						
+						// Create Uniform Buffer
+						UniformBuffer.data = PushArray(TranArena, models_count_in_use * MAX_FRAMES_IN_FLIGHT, VkBuffer);
+						UniformBuffer.memory = PushArray(TranArena, models_count_in_use* MAX_FRAMES_IN_FLIGHT, VkDeviceMemory);
+						
+						for(u32 i = 0; i < models_count_in_use; ++i)
+						{
+							world_vertices_offsets[i] = Header->command_push_all_meshes.mesh_entry_vertex_offsets[i];
+							world_indices_offsets[i] = Header->command_push_all_meshes.mesh_entry_index_offsets[i];
+						}
+						
+						for(u32 i = 0; i < models_count_in_use * MAX_FRAMES_IN_FLIGHT; ++i)
+						{
+							vk_CreateUniformBuffers(TranArena, PhysicalDevice, LogicalDevice, &UniformBuffer.data[i], &UniformBuffer.memory[i]);
+						}
+						
+						entity_texture_indices = Header->command_push_all_meshes.mesh_entry_texture_indices;
+						
+					} break;
+					
+					case EngineRenderCommandType_PushTexture:
+					{
+						u32 TextureWidth = Header->command_push_texture.width;
+						u32 TextureHeight = Header->command_push_texture.height;
+						u32 MipLevels = Header->command_push_texture.mip_maps_count;
+						void *Pixels = (void *)Header->command_push_texture.data;
+						
+						vk_CreateTextureImage(&TextureImages[TextureImageCount], TextureWidth, TextureHeight, MipLevels, Pixels,  &TextureImageMemories[TextureImageCount], PhysicalDevice, LogicalDevice, CommandPool, GraphicQueue);
+						
+						TextureImageViews[TextureImageCount] = vk_CreateImageView(LogicalDevice, TextureImages[TextureImageCount], VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT, MipLevels);
+						
+						++TextureImageCount;
+					} break;
+				}
+				
+				offset += sizeof(engine_render_entry_header);
+			}
+			
+			// Create World Descriptors
+			u32 world_descriptors_count = models_count_in_use * MAX_FRAMES_IN_FLIGHT;
+			for(u32 Index = 0;
+				Index < world_descriptors_count;
+				++Index)
+			{
+				VkDescriptorBufferInfo BufferInfo = {};
+				BufferInfo.buffer = UniformBuffer.data[Index];
+				BufferInfo.offset = 0;
+				BufferInfo.range = sizeof(UniformBufferObject);
+				
+				u32 texture_idx = entity_texture_indices[Index % models_count_in_use];
+				VkDescriptorImageInfo ImageInfo = {};
+				ImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				ImageInfo.imageView = TextureImageViews[texture_idx];
+				ImageInfo.sampler = TextureSampler;
+				
+				VkWriteDescriptorSet DescriptorWrites[2] = {{},{}};
+				
+				DescriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+				DescriptorWrites[0].dstSet = world_descriptor_sets[Index];
+				DescriptorWrites[0].dstBinding = 0;
+				DescriptorWrites[0].dstArrayElement = 0;
+				DescriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+				DescriptorWrites[0].descriptorCount = 1;
+				DescriptorWrites[0].pBufferInfo = &BufferInfo;
+				
+				DescriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+				DescriptorWrites[1].dstSet = world_descriptor_sets[Index];
+				DescriptorWrites[1].dstBinding = 1;
+				DescriptorWrites[1].dstArrayElement = 0;
+				DescriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+				DescriptorWrites[1].descriptorCount = 1;
+				DescriptorWrites[1].pImageInfo = &ImageInfo;
+				
+				u32 ArraySize = ArrayCount(DescriptorWrites);
+				vkUpdateDescriptorSets(LogicalDevice, ArraySize, DescriptorWrites, 0, 0);
+			}
+			// End of Create World Descriptors
+			
+			// Create UI Descriptors
+			for(u32 Index = 0;
+				Index < MAX_FRAMES_IN_FLIGHT;
+				++Index)
+			{
+				VkDescriptorBufferInfo BufferInfo = {};
+				BufferInfo.buffer = UniformBuffer.data[Index];
+				BufferInfo.offset = 0;
+				BufferInfo.range = sizeof(UniformBufferObject);
+				
+				VkDescriptorImageInfo ImageInfo = {};
+				ImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				ImageInfo.imageView = TextureImageViews[0];
+				ImageInfo.sampler = TextureSampler;
+				
+				VkWriteDescriptorSet DescriptorWrites[2] = {{},{}};
+				
+				DescriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+				DescriptorWrites[0].dstSet = ui_DescriptorSets[Index];
+				DescriptorWrites[0].dstBinding = 0;
+				DescriptorWrites[0].dstArrayElement = 0;
+				DescriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+				DescriptorWrites[0].descriptorCount = 1;
+				DescriptorWrites[0].pBufferInfo = &BufferInfo;
+				
+				DescriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+				DescriptorWrites[1].dstSet = ui_DescriptorSets[Index];
+				DescriptorWrites[1].dstBinding = 1;
+				DescriptorWrites[1].dstArrayElement = 0;
+				DescriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+				DescriptorWrites[1].descriptorCount = 1;
+				DescriptorWrites[1].pImageInfo = &ImageInfo;
+				
+				u32 ArraySize = ArrayCount(DescriptorWrites);
+				vkUpdateDescriptorSets(LogicalDevice, ArraySize, DescriptorWrites, 0, 0);
+			}
+			// End of Create UI Descriptors
+			
+			//
+			//
+			// End of VULKAN Initialization
+			
 			ShowWindow(Window, SW_SHOW);
 			
+			// NOTE(Denis): Main engine loop
 			while(GlobalRunning)
 			{
 				NewInput->dtForFrame = TargetSecondsPerFrame;
@@ -1030,6 +1381,8 @@ int WinMain(HINSTANCE Instance,
 				game_controller_input *NewKeyboardController = GetController(NewInput,0);
 				*NewKeyboardController = {};
 				NewKeyboardController->IsConntected = true;
+				
+				// NOTE(Denis): Process keyboard input
 				for(int ButtonIndex=  0;
 					ButtonIndex < ArrayCount(NewKeyboardController->Buttons);
 					++ButtonIndex)
@@ -1037,8 +1390,26 @@ int WinMain(HINSTANCE Instance,
 					NewKeyboardController->Buttons[ButtonIndex].EndedDown =
 						OldKeyboardController->Buttons[ButtonIndex].EndedDown;
 				}
-				
 				Win32ProcessPendingMessages(&Win32State,NewKeyboardController);
+				
+				// NOTE(Denis): Process mouse input
+				DWORD WinButtonID[PlatformMouseButton_Count] = 
+				{
+					VK_LBUTTON,
+					VK_MBUTTON,
+					VK_RBUTTON,
+					VK_XBUTTON1,
+					VK_XBUTTON2,
+				};
+				for(u32 ButtonIndex = 0;
+					ButtonIndex < PlatformMouseButton_Count;
+					++ButtonIndex)
+				{
+					NewInput->MouseButtons[ButtonIndex] = OldInput->MouseButtons[ButtonIndex];
+					NewInput->MouseButtons[ButtonIndex].HalfTransitionCount = 0;
+					Win32ProcessKeyboardMessage(&NewInput->MouseButtons[ButtonIndex],
+												GetKeyState(WinButtonID[ButtonIndex]) & (1 << 15));
+				}
 				
 				if(!GlobalPause)
 				{
@@ -1074,31 +1445,29 @@ int WinMain(HINSTANCE Instance,
 					
 					if(NewInput->MouseX < 1)
 					{
-						SetCursorPos((u32)SwapChainExtent.width + WindowP.x, WindowP.y);
-						ScreenWrapOffsetX = (f32)SwapChainExtent.width - 1;
-						//SetCursor(0);
+						SetCursorPos((u32)SwapChainExtent.width - 2 + WindowP.x, WindowP.y);
+						ScreenWrapOffsetX = (f32)SwapChainExtent.width - 2;
+					} 
+					else if(NewInput->MouseY < 1)
+					{
+						SetCursorPos(WindowP.x, WindowP.y - SwapChainExtent.height - 2);
+						ScreenWrapOffsetY = (f32)SwapChainExtent.height - 2;
+					} 
+					else if(NewInput->MouseX > SwapChainExtent.width - 2)
+					{
+						SetCursorPos(WindowP.x - (SwapChainExtent.width - 2), WindowP.y);
+						ScreenWrapOffsetX = -(f32)SwapChainExtent.width + 2;
+					} 
+					else if(NewInput->MouseY > SwapChainExtent.height - 2)
+					{
+						SetCursorPos(WindowP.x, WindowP.y + (SwapChainExtent.height - 2));
+						ScreenWrapOffsetY = -(f32)SwapChainExtent.height + 2;
 					}
 					
-					if(NewInput->MouseY < 1)
-					{
-						SetCursorPos(WindowP.x, WindowP.y - SwapChainExtent.height);
-						ScreenWrapOffsetY = (f32)SwapChainExtent.height - 1;
-						//SetCursor(0);
-					}
+					RECT window_rect = {};
+					GetWindowRect(Window, &window_rect);
 					
-					if(NewInput->MouseX > SwapChainExtent.width - 2)
-					{
-						SetCursorPos(WindowP.x - (SwapChainExtent.width - 1), WindowP.y);
-						ScreenWrapOffsetX = -(f32)SwapChainExtent.width + 1;
-						//SetCursor(0);
-					}
-					
-					if(NewInput->MouseY > SwapChainExtent.height - 2)
-					{
-						SetCursorPos(WindowP.x, WindowP.y + (SwapChainExtent.height - 1));
-						ScreenWrapOffsetY = -(f32)SwapChainExtent.height + 1;
-						//SetCursor(0);
-					}
+					ClipCursor(&window_rect);
 					
 					f32 x_offset = MouseOldPx - NewInput->MouseX;
 					f32 y_offset = MouseOldPy - NewInput->MouseY;
@@ -1113,34 +1482,13 @@ int WinMain(HINSTANCE Instance,
 					NewInput->AltDown = (GetKeyState(VK_MENU) & (1 << 15));
 					NewInput->ControlDown = (GetKeyState(VK_CONTROL) & (1 << 15));
 					
-					LARGE_INTEGER WorkCounter = Win32GetWallClock();
-					f32 WorkSecondsElapsed = Win32GetSecondsElapsed(LastCounter, WorkCounter);
-					
-					f32 SecondsElapsedForFrame = WorkSecondsElapsed;
-					if(SecondsElapsedForFrame < TargetSecondsPerFrame)
-					{
-						if(SleepIsGranular)
-						{
-							DWORD SleepMS = (DWORD)(1000.0f * (TargetSecondsPerFrame - SecondsElapsedForFrame));
-							if(SleepMS > 0)
-							{
-								Sleep(SleepMS);
-							}
-						}
-						
-						while(SecondsElapsedForFrame < TargetSecondsPerFrame)
-						{
-							SecondsElapsedForFrame = Win32GetSecondsElapsed(LastCounter, Win32GetWallClock());
-						}
-					}
-					else
-					{
-						// TODO(Denis): MISSED FRAME RATE!
-					}
-					
-					
 					// TODO(Denis): Create loading this function from our endgine dll
 					EngineUpdateAndRender(&GameMemory, NewInput, &EngineRenderCommands);
+					
+					if(GameMemory.QuitRequested)
+					{
+						GlobalRunning = false;
+					}
 					
 					// RENDERING FRAME
 					//
@@ -1149,7 +1497,6 @@ int WinMain(HINSTANCE Instance,
 					vkWaitForFences(LogicalDevice, 1, &InFlightFences[CurrentFrame], VK_TRUE, UINT64_MAX);
 					
 					// Acquire an image from the swap chain
-					
 					VkResult Result = vkAcquireNextImageKHR(LogicalDevice, SwapChain, UINT64_MAX, ImageAvailableSemaphores[CurrentFrame], VK_NULL_HANDLE, &ImageIndex);
 					
 					if(Result == VK_ERROR_OUT_OF_DATE_KHR || Result == VK_SUBOPTIMAL_KHR || GlobalFramebufferResized)
@@ -1164,20 +1511,187 @@ int WinMain(HINSTANCE Instance,
 					vkResetFences(LogicalDevice, 1, &InFlightFences[CurrentFrame]);
 					// End of Acquire an image from the swap chain
 					
-					// NOTE(Denis): Recording the ui command buffer
-					
-					// Recording the world command buffer
+					// Reset command buffer!
 					vkResetCommandBuffer(CommandBuffersWorld[CurrentFrame], 0);
+					vkResetCommandBuffer(CommandBuffersUI[CurrentFrame], 0);
+					vkResetCommandBuffer(CommandBuffers_ui_text[CurrentFrame], 0);
 					
-					vk_RecordCommandBuffer(CommandBuffersWorld[CurrentFrame], WorldRenderPass, WorldPipeline, world_pipeline_layout, DescriptorSets, world_framebuffers, SwapChainExtent, VertexBuffer, IndexBuffer, VerticesCount, IndicesCount, CurrentFrame, ImageIndex, false);
+					// NOTE(Denis): Unpack and process render commands from engine update
+					engine_render_commands Commands = EngineRenderCommands;
+					engine_render_entry_header *Header = 0;
+					u32 offset = 0;
+					for(u32 index = 0;
+						index < Commands.CommandBufferElementCount;
+						index++)
+					{
+						Header = (engine_render_entry_header *)(Commands.CommandBufferBase + offset);
+						
+						switch(Header->Type)
+						{
+							case EngineRenderCommandType_Quad:
+							{
+								// COMMAND BUFFER RECORDING
+								vk_CommandBuffersBegin(&CommandBuffersUI[CurrentFrame], 1);
+								
+								vertex_3d *Vertices = (vertex_3d *)Header->command_quad.verts_array;
+								u32 *Indices = (u32 *)Header->command_quad.indices_array;
+								
+								VkDeviceSize VertexBufferSize = Header->command_quad.vertex_count * sizeof(vertex_3d);
+								VkDeviceSize IndexBufferSize = Header->command_quad.indices_count * sizeof(u32);
+								
+								VkDeviceSize WholeVertSize = ui_vertices_count * sizeof(vertex_3d);
+								VkDeviceSize WholeIndexSize = ui_indices_count * sizeof(u32);
+								
+								void *Data;
+								vkMapMemory(LogicalDevice, *ui_vertex_buffer.memory, 0, VertexBufferSize, 0, &Data);
+								memset(Data, 0, WholeVertSize); // Reset GPU memory data to zeroes
+								memcpy(Data, Vertices, VertexBufferSize);
+								
+								vkMapMemory(LogicalDevice, *ui_index_buffer.memory, 0, WholeIndexSize, 0, &Data);
+								memset(Data, 0, WholeIndexSize); // Reset GPU memory data to zeroes
+								memcpy(Data, Indices, IndexBufferSize);
+								
+								vk_RecordCommandBuffer(CommandBuffersUI[CurrentFrame], UIRenderPass, material_pipelines[MaterialType_UI], ui_pipeline_layout, world_descriptor_sets, swap_chain_framebuffers, SwapChainExtent, *ui_vertex_buffer.data, *ui_index_buffer.data, ui_indices_count, CurrentFrame, ImageIndex, true);
+								
+								vk_CommandBuffersEnd(&CommandBuffersUI[CurrentFrame], 1);
+								
+							} break;
+							
+							case EngineRenderCommandType_TextRect:
+							{
+								// COMMAND BUFFER RECORDING
+								vk_CommandBuffersBegin(&CommandBuffers_ui_text[CurrentFrame], 1);
+								
+								vertex_3d *Vertices = (vertex_3d *)Header->command_text_rect.verts_array;
+								u32 *Indices = (u32 *)Header->command_text_rect.indices_array;
+								
+								VkDeviceSize VertexBufferSize = Header->command_text_rect.vertex_count * sizeof(vertex_3d);
+								VkDeviceSize IndexBufferSize = Header->command_text_rect.indices_count * sizeof(u32);
+								
+								VkDeviceSize WholeVertSize = text_ui_vertices_count * sizeof(vertex_3d);
+								VkDeviceSize WholeIndexSize = text_indices_count * sizeof(u32);
+								
+								void *Data;
+								vkMapMemory(LogicalDevice, ui_text_vertex_buffer_memory, 0, VertexBufferSize, 0, &Data);
+								memset(Data, 0, WholeVertSize); // Reset GPU memory data to zeroes
+								memcpy(Data, Vertices, VertexBufferSize);
+								
+								vkMapMemory(LogicalDevice, ui_text_index_buffer_memory, 0, IndexBufferSize, 0, &Data);
+								memset(Data, 0, WholeIndexSize); // Reset GPU memory data to zeroes
+								memcpy(Data, Indices, IndexBufferSize);
+								
+								if(!TextureImageViews[0])
+								{
+									TextureImageViews[0] = vk_CreateImageView(LogicalDevice, TextureImages[0], VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT, MipLevels);
+								}
+								
+								vk_RecordCommandBuffer(CommandBuffers_ui_text[CurrentFrame], UIRenderPass, material_pipelines[MaterialType_UIText], ui_pipeline_layout, ui_DescriptorSets, swap_chain_framebuffers, SwapChainExtent, ui_text_vertex_buffer, ui_text_index_buffer, text_indices_count, CurrentFrame, ImageIndex, true);
+								
+								vk_CommandBuffersEnd(&CommandBuffers_ui_text[CurrentFrame], 1);
+								
+							} break;
+							
+							case EngineRenderCommandType_UpdateCamera:
+							{
+								// COMMAND BUFFER RECORDING
+								vk_CommandBuffersBegin(&CommandBuffersWorld[CurrentFrame], 1);
+								
+								// Starting a Render Pass
+								VkRenderPassBeginInfo RenderPassBeginInfo = {};
+								RenderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+								RenderPassBeginInfo.renderPass = WorldRenderPass;
+								RenderPassBeginInfo.framebuffer = world_framebuffers[ImageIndex];
+								RenderPassBeginInfo.renderArea.offset = {0, 0};
+								RenderPassBeginInfo.renderArea.extent = SwapChainExtent;
+								
+								// NOTE(Denis): Note that the order of clearValues should be identical to the order of our attachments.
+								VkClearValue ClearValues[3];
+								ClearValues[0].color = {{0.245f, 0.339f, 0.378f, 1.0f}};
+								ClearValues[1].depthStencil = {1.0f,0};
+								ClearValues[2].color = {{0.245f, 0.339f, 0.378f, 1.0f}};
+								
+								// Basic drawing commands
+								VkViewport Viewport = {};
+								Viewport.x = 0.0f;
+								Viewport.y = 0.0f;
+								Viewport.width = (f32)SwapChainExtent.width;
+								Viewport.height = (f32)SwapChainExtent.height;
+								Viewport.minDepth = 0;
+								Viewport.maxDepth = 1.0f;
+								
+								VkRect2D Scissor = {};
+								Scissor.offset = {0, 0};
+								Scissor.extent = SwapChainExtent;
+								
+								vkCmdSetViewport(CommandBuffersWorld[CurrentFrame], 0, 1, &Viewport);
+								vkCmdSetScissor(CommandBuffersWorld[CurrentFrame], 0, 1, &Scissor);
+								RenderPassBeginInfo.clearValueCount = ArrayCount(ClearValues);
+								RenderPassBeginInfo.pClearValues = ClearValues;
+								
+								vkCmdBeginRenderPass(CommandBuffersWorld[CurrentFrame], &RenderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+								vkCmdBindPipeline(CommandBuffersWorld[CurrentFrame], VK_PIPELINE_BIND_POINT_GRAPHICS, material_pipelines[MaterialType_Default]);
+								
+								VkDeviceSize Offsets[] = {0};
+								vkCmdBindVertexBuffers(CommandBuffersWorld[CurrentFrame], 0, 1, WorldVertexBuffer.data, Offsets);
+								vkCmdBindIndexBuffer(CommandBuffersWorld[CurrentFrame], *WorldIndexBuffer.data, 0, VK_INDEX_TYPE_UINT32);
+								
+								// Rendering world models
+								
+								// Need to make optimization about which model matrices to update (some kind of list of indices)
+								// Alghorithm like this: when engine changes transform of any model, we need to add index of 
+								// this transform to array and write count of objects in list, which later i will use as 
+								// count of objects to update in this one frame.
+								{
+									u32 last_offset = 0;
+									for(u32 i = 0; i < models_count_in_use; ++i)
+									{
+										mat4 View = Header->command_update_camera.view_mat4x4;
+										mat4 Proj = Header->command_update_camera.proj_mat4x4;
+										mat4 Model = Header->command_update_camera.model_mats4x4[i];
+										mat4 MVP_Matrix = Proj * View * Model;
+										
+										UniformBufferObject Ubo = {};
+										Ubo.MVP_Final = MVP_Matrix;
+										Ubo.Model = Model;
+										Ubo.View = View;
+										Ubo.Proj = Proj;
+										
+										u32 current_frame_data_idx = i + CurrentFrame * models_count_in_use;
+										
+										void *Data;
+										vkMapMemory(LogicalDevice, UniformBuffer.memory[current_frame_data_idx], 0, sizeof(Ubo), 0, &Data);
+										memcpy(Data, &Ubo, sizeof(Ubo));
+										
+										vkCmdBindDescriptorSets(CommandBuffersWorld[CurrentFrame], VK_PIPELINE_BIND_POINT_GRAPHICS, world_pipeline_layout, 0, 1, &world_descriptor_sets[current_frame_data_idx], 0, nullptr);
+										vkCmdDrawIndexed(CommandBuffersWorld[CurrentFrame], world_indices_offsets[i], 1, last_offset, 0, 0);
+										
+										last_offset += world_indices_offsets[i];
+									}
+								}
+								
+								// Rendering world grid
+								{
+									vkCmdBindPipeline(CommandBuffersWorld[CurrentFrame], VK_PIPELINE_BIND_POINT_GRAPHICS, material_pipelines[MaterialType_WorldGrid]);
+									vkCmdBindDescriptorSets(CommandBuffersWorld[CurrentFrame], VK_PIPELINE_BIND_POINT_GRAPHICS, world_pipeline_layout, 0, 1, &world_descriptor_sets[CurrentFrame * models_count_in_use], 0, 0);
+									vkCmdDraw(CommandBuffersWorld[CurrentFrame], 6, 1, 0, 0);
+								}
+								
+								vkCmdEndRenderPass(CommandBuffersWorld[CurrentFrame]);
+								vk_CommandBuffersEnd(&CommandBuffersWorld[CurrentFrame], 1);
+							} break;
+							
+							case EngineRenderCommandType_None:
+							{
+								
+							} break;
+							
+							InvalidDefaultCase;
+						}
+						
+						offset += sizeof(engine_render_entry_header);
+					}
 					
-					vk_UpdateUniformBuffer(LogicalDevice, SwapChainExtent, UniformBuffersMemory, EngineRenderCommands, CurrentFrame);
-					
-					vk_RecordCommandBuffer(CommandBuffersUI[CurrentFrame], UIRenderPass, UIPipeline, ui_pipeline_layout, DescriptorSets, swap_chain_framebuffers, SwapChainExtent, ui_vertex_buffer, ui_index_buffer, indices_and_vertices_count, indices_and_vertices_count, CurrentFrame, ImageIndex, true);
-					
-					vk_update_ui_buffer(LogicalDevice, &ui_vertex_buffer_memory, &ui_index_buffer_memory, EngineRenderCommands);
-					
-					VkCommandBuffer CommandBuffers[] = {CommandBuffersWorld[CurrentFrame], CommandBuffersUI[CurrentFrame]};
+					VkCommandBuffer CommandBuffers[] = {CommandBuffersWorld[CurrentFrame], CommandBuffersUI[CurrentFrame], CommandBuffers_ui_text[CurrentFrame]};
 					VkSubmitInfo SubmitInfo = {};
 					SubmitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 					
@@ -1186,7 +1700,7 @@ int WinMain(HINSTANCE Instance,
 					SubmitInfo.waitSemaphoreCount = 1;
 					SubmitInfo.pWaitSemaphores = WaitSemaphores;
 					SubmitInfo.pWaitDstStageMask = WaitStages;
-					SubmitInfo.commandBufferCount = 2;
+					SubmitInfo.commandBufferCount = ArrayCount(CommandBuffers);
 					SubmitInfo.pCommandBuffers = CommandBuffers;
 					
 					VkSemaphore SignalSemaphores[] = {RenderFinishedSemaphores[CurrentFrame]};
@@ -1220,11 +1734,34 @@ int WinMain(HINSTANCE Instance,
 					
 					CurrentFrame = (CurrentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 					
-					EndRenderCommands(&EngineRenderCommands);
-					
 					//
 					//
 					// END OF RENDERING FRAME
+					
+					LARGE_INTEGER WorkCounter = Win32GetWallClock();
+					f32 WorkSecondsElapsed = Win32GetSecondsElapsed(LastCounter, WorkCounter);
+					
+					f32 SecondsElapsedForFrame = WorkSecondsElapsed;
+					if(SecondsElapsedForFrame < TargetSecondsPerFrame)
+					{
+						if(SleepIsGranular)
+						{
+							DWORD SleepMS = (DWORD)(1000.0f * (TargetSecondsPerFrame - SecondsElapsedForFrame));
+							if(SleepMS > 0)
+							{
+								Sleep(SleepMS);
+							}
+						}
+						
+						while(SecondsElapsedForFrame < TargetSecondsPerFrame)
+						{
+							SecondsElapsedForFrame = Win32GetSecondsElapsed(LastCounter, Win32GetWallClock());
+						}
+					}
+					else
+					{
+						// TODO(Denis): MISSED FRAME RATE!
+					}
 					
 					// NOTE(Denis): Record old input
 					game_input *Temp = NewInput;
@@ -1235,6 +1772,8 @@ int WinMain(HINSTANCE Instance,
 					LARGE_INTEGER EndCounter = Win32GetWallClock();
 					f32 SecondsElapsed = Win32GetSecondsElapsed(LastCounter, EndCounter);
 					LastCounter = EndCounter;
+					
+					GameMemory.FrameSecondsElapsed = SecondsElapsed;
 				}
 				else
 				{
