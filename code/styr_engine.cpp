@@ -11,6 +11,8 @@
 #include "styr_camera.cpp"
 #include "styr_basic_ui.cpp"
 #include "styr_basic_ui_text.cpp"
+#include "styr_irrklang_audio.cpp"
+
 
 internal void
 PushRenderElement(engine_state EngineState, memory_arena *TranArena, engine_render_command_type Type)
@@ -427,6 +429,27 @@ EngineInitializeAtStart(game_memory *Memory, game_input *Input, engine_render_co
 	
 	EngineStatePtr->CloseApp = false;
 	EngineStatePtr->IsInitialized = true;
+
+	//adding the sound engine made by IrrKlang
+	EngineStatePtr->sound_engine = irrklang::createIrrKlangDevice();
+	if (!EngineStatePtr->sound_engine) {
+		GlobalRunning = false; // error starting up the engine
+		EngineStatePtr->sound_engine->drop();
+	}
+	//if you need to play some 2D or 3D sound without any customization 
+	//just call EngineStatePtr->sound_engine->play2D() or play3D() method for once (it will be played in loop of EngineUpdateAndRender)
+	//but for customization its better to use ISound class that is made of engine class 
+	//also his work and dependences will be in styr_irrklang_audio.cpp
+	//play_3D_customized_sound();
+
+	//now we need to create customized sound
+	//now max sounds count id 64 but it can be changed in styr_irrklang_audio.cpp -> sounds array
+	create_customized_3D_sound("P:/baka_mitai.mp3", V3(0, 0, 0), 1.0f, 1.0f, false);
+	//then we can tell to engine play customized sound by play_3D_customized_sound();
+	// but it has to be initialized once if you dont need huge amount of sounds at the same time
+	//you need to use id of sound to play it (id begins from 0)
+	play_3D_customized_sound(EngineStatePtr, 0);
+
 }
 
 // NOTE(Denis): Its important that we have pure functions without side effects
@@ -502,6 +525,10 @@ EngineUpdateAndRender(game_memory *Memory, game_input *Input, engine_render_comm
 			}
 			if(WasPressed(Controller->Back))
 			{
+				EngineStatePtr->sound_engine->drop();
+				int i = 0;
+				for (i; sounds[i].filepath != nullptr;i++)
+					sounds[i].music->drop();
 				QuitRequested = true;
 			}
 		}
@@ -561,17 +588,22 @@ EngineUpdateAndRender(game_memory *Memory, game_input *Input, engine_render_comm
 			lines[i].color = { 0.0f,0.0f ,0.0f ,1.0f };
 		}
 
-		draw_writeline(lines[i], EngineStatePtr->basic_ui_state_ptr, EngineStatePtr->Assets, EngineStatePtr->basic_ui_text_state_ptr, screen_width, screen_height);
+		draw_writeline(lines[i], EngineStatePtr, screen_width, screen_height);
 	}
 
 	for (int i = 0; i < (sizeof(lines) / sizeof(write_line)); i++) {
 		if (lines[i].acces == true) {
-			work_with_text(&lines[i], EngineStatePtr->basic_ui_state_ptr, EngineStatePtr->Assets, Input, EngineStatePtr->basic_ui_text_state_ptr, screen_width, screen_height);
+			work_with_text(&lines[i], EngineStatePtr, Input, screen_width, screen_height);
 		}
 	}
-		
 
 	//draw_quad_screen_space(EngineStatePtr->basic_ui_state_ptr, screen_width, screen_height, V2(500, 400), V2(200,200), V4(1,1,0,1));
+
+	//this is needed to work with sound
+	v3 cam_pos = get_camera_v3_position(&new_camera_transform);
+	v3 cam_front = get_camera_v3_front(&new_camera_transform);
+
+	EngineStatePtr->sound_engine->setListenerPosition(get_v3_to_vec3df(cam_pos), get_v3_to_vec3df(cam_front));
 	
 	// NOTE(Denis): Debug Text Output
 	{

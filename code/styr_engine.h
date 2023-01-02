@@ -205,6 +205,9 @@ SubArena(memory_arena *Result, memory_arena *Arena, memory_index Size, arena_pus
 #include "styr_camera.h"
 #include "styr_basic_ui.h"
 #include "styr_basic_ui_text.h"
+#include "irrKlang/include/irrKlang.h"
+
+#pragma comment(lib, "P:/code/irrKlang/lib/Winx64-visualStudio/irrKlang.lib") // link with irrKlang.dll
 
 enum engine_render_command_type
 {
@@ -314,6 +317,7 @@ struct engine_state
 	texture_2d *Textures;
 	
 	u32 *meshes_texture_index;
+	irrklang::ISoundEngine* sound_engine;
 };
 
 global_variable platform_api Platform;
